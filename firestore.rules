@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pomocné funkce
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ─── Uživatelé ──────────────────────────────────────────────
+    match /users/{userId} {
+      // Číst mohou přihlášení uživatelé, admin vidí všechny
+      allow read: if isSignedIn();
+      // Vytvořit profil smí jen nový uživatel pro sebe
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Upravit smí uživatel sám sebe nebo admin
+      allow update: if isSignedIn() &&
+        (request.auth.uid == userId || isAdmin());
+    }
+
+    // ─── Pozvánky (QR) ──────────────────────────────────────────
+    match /invites/{token} {
+      // Ověření tokenu smí kdokoliv (registrace)
+      allow read: if true;
+      // Vytvářet a mazat smí jen admin
+      allow create, delete: if isAdmin();
+      // Updatovat (spálit token) smí kdokoliv při registraci
+      allow update: if true;
+    }
+
+    // ─── Emailové pozvánky ──────────────────────────────────────
+    match /emailInvites/{token} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if true;
+    }
+
+    // ─── Akce ───────────────────────────────────────────────────
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ─── Galerie ────────────────────────────────────────────────
+    match /gallery/{galleryId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Audio ──────────────────────────────────────────────────
+    match /audio/{audioId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn(); // Členové mohou nahrávat
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Video ──────────────────────────────────────────────────
+    match /videos/{videoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Chat ───────────────────────────────────────────────────
+    match /messages/{messageId} {
+      allow read: if isSignedIn();
+      // Psát mohou přihlášení, ale jen za sebe
+      allow create: if isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid;
+      // Mazat smí jen admin
+      allow delete: if isAdmin();
+    }
+  }
+}
