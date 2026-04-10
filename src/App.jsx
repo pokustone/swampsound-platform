@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import QRCode from 'qrcode';
 import { onAuth, login as fbLogin, registerWithInvite, validateToken, logout as fbLogout, resetPassword } from './lib/auth.js';
 import * as DB from './lib/db.js';
+import S from './lib/strings.js';
+import './styles.css';
 
 /* ═══ QR ═════════════════════════════════════════════════════════ */
 function QrSvg({ data, size = 120 }) {
@@ -12,17 +14,33 @@ function QrSvg({ data, size = 120 }) {
 }
 
 /* ═══ File reading helper ════════════════════════════════════════ */
-function readFileAsDataUrl(file) {
+function readFileAsDataUrl(file, maxDim = 1200, quality = 0.7) {
   return new Promise((resolve) => {
     const r = new FileReader();
-    r.onload = () => resolve(r.result);
     r.onerror = () => resolve(null);
+    r.onload = () => {
+      if (!file.type.startsWith("image/")) { resolve(r.result); return; }
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio); h = Math.round(h * ratio);
+        }
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(r.result);
+      img.src = r.result;
+    };
     r.readAsDataURL(file);
   });
 }
+function readFileAsThumb(file) { return readFileAsDataUrl(file, 400, 0.5); }
 
 /* ═══ Helpers ═════════════════════════════════════════════════════ */
-const valPw = pw => { if (pw.length < 8) return "Min. 8 znaků"; if (!/[A-Z]/.test(pw)) return "Velké písmeno"; if (!/[a-z]/.test(pw)) return "Malé písmeno"; if (!/[0-9]/.test(pw)) return "Číslice"; return null; };
+const valPw = pw => { if (pw.length < 8) return S.pwMin8; if (!/[A-Z]/.test(pw)) return S.pwUpper; if (!/[a-z]/.test(pw)) return S.pwLower; if (!/[0-9]/.test(pw)) return S.pwDigit; return null; };
 const fmtT = ts => { if (!ts) return "—"; const d = Date.now() - ts; if (d < 60000) return "teď"; if (d < 3600000) return `${Math.floor(d / 60000)}m`; if (d < 86400000) return `${Math.floor(d / 3600000)}h`; return new Date(ts).toLocaleDateString("cs-CZ"); };
 const fmtDate = ts => { if (!ts) return "—"; return new Date(ts).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" }); };
 const fmtDur = s => { const m = Math.floor(s / 60), h = Math.floor(m / 60); return h ? `${h}h ${m % 60}m` : `${m}m`; };
@@ -55,7 +73,7 @@ function Crd({ children, onClick, hov, style: es }) {
 function Badge({ children, color = C.grnL }) { return <span style={{ padding: "3px 10px", borderRadius: 3, fontSize: 10, fontWeight: "bold", letterSpacing: 1, textTransform: "uppercase", background: color + "22", color, whiteSpace: "nowrap" }}>{children}</span>; }
 function Sec({ title, right, children }) { return <><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, marginTop: 28 }}><div style={{ fontSize: 10, letterSpacing: 3, color: C.accD, textTransform: "uppercase" }}>{title}</div>{right}</div>{children}</>; }
 function EvLink({ event, onNav }) { if (!event) return null; return <button onClick={e => { e.stopPropagation(); onNav("events:" + event.id); }} style={{ background: "none", border: "none", color: C.acc, fontSize: 11, cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline" }}>{event.title} →</button>; }
-function Loading({ text = "Načítání..." }) { return <div style={{ textAlign: "center", padding: 40, color: C.txM, fontSize: 13 }}>{text}</div>; }
+function Loading({ text }) { return <div style={{ textAlign: "center", padding: 40, color: C.txM, fontSize: 13 }}>{text || S.loading}</div>; }
 
 /* ═══ Photo ══════════════════════════════════════════════════════ */
 function PhotoImg({ photo, size = 140, onClick }) {
@@ -157,7 +175,7 @@ function AudioPlayer({ track }) {
 /* ═══ Chat (Firebase real-time) ══════════════════════════════════ */
 function MiniChat({ user, room, events = [], showLabels = false, allRooms = false, onRoomClick }) {
   const [msgs, setMsgs] = useState([]); const [txt, setTxt] = useState(""); const btm = useRef(null);
-  const roomLabel = id => { if (id === "general") return "Hlavní chat"; return events.find(e => e.id === id)?.title || id; };
+  const roomLabel = id => { if (id === "general") return S.chatGeneralFull; return events.find(e => e.id === id)?.title || id; };
   const effectiveRoom = allRooms ? null : (room || "general");
   useEffect(() => { return allRooms ? DB.onAllMessages(setMsgs, 200) : DB.onMessages(effectiveRoom, setMsgs, 100); }, [effectiveRoom, allRooms]);
   useEffect(() => { btm.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length]);
@@ -173,7 +191,7 @@ function MiniChat({ user, room, events = [], showLabels = false, allRooms = fals
     return age < 24 * 60 * 60 * 1000;
   };
   const handleDelete = async (m) => {
-    if (!confirm("Smazat zprávu?")) return;
+    if (!confirm(S.chatDeleteConfirm)) return;
     try { await DB.deleteMessage(m.id); } catch (e) { console.error("Delete msg:", e); alert("Nelze smazat: " + e.message); }
   };
   return <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -186,44 +204,50 @@ function MiniChat({ user, room, events = [], showLabels = false, allRooms = fals
       </div>; })}
       <div ref={btm} />
     </div>
-    <div style={{ display: "flex", gap: 8 }}><input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} placeholder={allRooms ? "Piš do hlavního chatu..." : "Napiš zprávu..."} style={{ flex: 1, padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit", outline: "none" }} /><Btn onClick={send}>Odeslat</Btn></div>
+    <div style={{ display: "flex", gap: 8 }}><input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} placeholder={allRooms ? S.chatPlaceholderAll : S.chatPlaceholder} style={{ flex: 1, padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit", outline: "none" }} /><Btn onClick={send}>Odeslat</Btn></div>
   </div>;
 }
 
 /* ═══ Nav ═════════════════════════════════════════════════════════ */
 function Nav({ user, onNav, page }) {
-  const links = user ? [{ id: "dashboard", l: "Nástěnka" }, { id: "events", l: "Akce" }, { id: "gallery", l: "Galerie" }, { id: "media", l: "Audio/Video" }, { id: "chat", l: "Chat" }, ...(user.role === "admin" ? [{ id: "admin", l: "Admin" }] : [])] : [];
+  const [menuOpen, setMenuOpen] = useState(false);
+  const links = user ? [{ id: "dashboard", l: S.navDashboard }, { id: "events", l: S.navEvents }, { id: "gallery", l: S.navGallery }, { id: "media", l: S.navMedia }, { id: "chat", l: S.navChat }, ...(user.role === "admin" ? [{ id: "admin", l: S.navAdmin }] : [])] : [];
   const ap = page.split(":")[0];
-  return <nav style={{ background: C.grnD, borderBottom: `1px solid ${C.brd}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, position: "sticky", top: 0, zIndex: 100, overflowX: "auto", gap: 8 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexShrink: 0 }} onClick={() => onNav(user ? "dashboard" : "landing")}><span style={{ fontSize: 18, color: C.acc, fontWeight: "bold" }}>///</span><span style={{ fontSize: 13, fontWeight: "bold", letterSpacing: 3, color: C.tx, textTransform: "uppercase" }}>SwampSound</span></div>
-    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>{links.map(li => <button key={li.id} onClick={() => onNav(li.id)} style={{ background: ap === li.id ? C.srfL : "transparent", border: "none", color: ap === li.id ? C.acc : C.txM, padding: "5px 10px", borderRadius: 4, fontSize: 11, fontFamily: "inherit", letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>{li.l}</button>)}{user && <button onClick={() => onNav("logout")} style={{ background: "transparent", border: `1px solid ${C.brd}`, color: C.txM, padding: "4px 10px", borderRadius: 4, fontSize: 10, fontFamily: "inherit", letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", marginLeft: 6 }}>Odhlásit</button>}</div>
-  </nav>;
+  const go = (id) => { setMenuOpen(false); onNav(id); };
+  return <>
+    <nav className="sss-nav">
+      <button className="sss-nav-logo" onClick={() => go(user ? "dashboard" : "landing")}><span className="sss-nav-logo-mark">///</span><span className="sss-nav-logo-text">{S.appName}</span></button>
+      <div className="sss-nav-links">{links.map(li => <button key={li.id} onClick={() => go(li.id)} className={`sss-nav-link${ap === li.id ? " active" : ""}`}>{li.l}</button>)}{user && <button onClick={() => go("logout")} className="sss-nav-logout">{S.navLogout}</button>}</div>
+      {user && <button className={`sss-hamburger${menuOpen ? " open" : ""}`} onClick={() => setMenuOpen(!menuOpen)}><span /><span /><span /></button>}
+    </nav>
+    {user && <div className={`sss-mobile-menu${menuOpen ? " open" : ""}`}>{links.map(li => <button key={li.id} onClick={() => go(li.id)} className={`sss-nav-link${ap === li.id ? " active" : ""}`}>{li.l}</button>)}<button onClick={() => go("logout")} className="sss-nav-logout">{S.navLogout}</button></div>}
+  </>;
 }
 
 /* ═══ Landing / Login / Register ═════════════════════════════════ */
 function Landing({ onNav }) {
-  return <div style={{ maxWidth: 640, margin: "0 auto", padding: "60px 20px", textAlign: "center" }}><div style={{ fontSize: 10, letterSpacing: 6, color: C.accD, textTransform: "uppercase", marginBottom: 10 }}>Est. 2004</div><h1 style={{ fontSize: 40, fontWeight: "bold", color: C.acc, letterSpacing: 4, margin: "0 0 6px", textTransform: "uppercase", fontFamily: "inherit" }}>SwampSound</h1><h2 style={{ fontSize: 15, fontWeight: "normal", color: C.txM, letterSpacing: 4, margin: "0 0 40px", textTransform: "uppercase" }}>System</h2><div style={{ width: 50, height: 1, background: C.acc, margin: "0 auto 36px", opacity: .4 }} /><p style={{ fontSize: 15, color: C.txM, lineHeight: 1.8, maxWidth: 460, margin: "0 auto 36px" }}>Přes 20 let basů, dubu a přátelství. Taneční akce po celé Evropě. Uzavřená komunita pro ty, kteří vědí.</p><div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}><Btn onClick={() => onNav("login")}>Přihlásit se</Btn><Btn v="secondary" onClick={() => onNav("register")}>Mám pozvánku</Btn></div></div>;
+  return <div style={{ maxWidth: 640, margin: "0 auto", padding: "60px 20px", textAlign: "center" }}><div style={{ fontSize: 10, letterSpacing: 6, color: C.accD, textTransform: "uppercase", marginBottom: 10 }}>{S.est}</div><h1 style={{ fontSize: 40, fontWeight: "bold", color: C.acc, letterSpacing: 4, margin: "0 0 6px", textTransform: "uppercase", fontFamily: "inherit" }}>{S.appName}</h1><h2 style={{ fontSize: 15, fontWeight: "normal", color: C.txM, letterSpacing: 4, margin: "0 0 40px", textTransform: "uppercase" }}>{S.appSub}</h2><div style={{ width: 50, height: 1, background: C.acc, margin: "0 auto 36px", opacity: .4 }} /><p style={{ fontSize: 15, color: C.txM, lineHeight: 1.8, maxWidth: 460, margin: "0 auto 36px" }}>{S.landingText}</p><div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}><Btn onClick={() => onNav("login")}>{S.landingLogin}</Btn><Btn v="secondary" onClick={() => onNav("register")}>{S.landingInvite}</Btn></div></div>;
 }
 
 function Login({ onNav }) {
   const [em, setEm] = useState(""); const [pw, setPw] = useState(""); const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
   const go = async () => {
-    if (!em || !pw) { setErr("Vyplňte email a heslo"); return; }
+    if (!em || !pw) { setErr(S.loginErrEmpty); return; }
     setLoading(true); setErr("");
     try { await fbLogin(em, pw); }
     catch (e) {
-      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") setErr("Nesprávný email nebo heslo");
-      else if (e.code === "auth/wrong-password") setErr("Nesprávné heslo");
-      else if (e.code === "auth/too-many-requests") setErr("Příliš mnoho pokusů, zkuste později");
-      else setErr(e.message || "Chyba přihlášení");
+      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") setErr(S.loginErrBad);
+      else if (e.code === "auth/wrong-password") setErr(S.loginErrPw);
+      else if (e.code === "auth/too-many-requests") setErr(S.loginErrRate);
+      else setErr(e.message || S.loginErrGeneric);
       setLoading(false);
     }
   };
   const handleReset = async () => {
-    if (!em) { setErr("Vyplňte email pro reset"); return; }
-    try { await resetPassword(em); setErr(""); alert("Email s odkazem na reset hesla byl odeslán."); } catch (e) { setErr("Chyba: " + (e.message || "")); }
+    if (!em) { setErr(S.loginResetPrompt); return; }
+    try { await resetPassword(em); setErr(""); alert(S.loginResetSent); } catch (e) { setErr("Chyba: " + (e.message || "")); }
   };
-  return <div style={{ maxWidth: 360, margin: "0 auto", padding: "60px 20px" }}><div style={{ textAlign: "center", marginBottom: 36 }}><div style={{ fontSize: 10, letterSpacing: 4, color: C.accD, textTransform: "uppercase", marginBottom: 6 }}>SwampSound</div><h1 style={{ fontSize: 22, color: C.acc, letterSpacing: 2, margin: 0, textTransform: "uppercase", fontFamily: "inherit" }}>Přihlášení</h1></div><Crd><Inp label="Email" type="email" value={em} onChange={v => { setEm(v); setErr(""); }} placeholder="vas@email.cz" required /><Inp label="Heslo" type="password" value={pw} onChange={v => { setPw(v); setErr(""); }} placeholder="••••••••" required />{err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10, padding: "7px 10px", background: "rgba(168,50,50,0.1)", borderRadius: 4 }}>{err}</div>}<Btn onClick={go} disabled={loading} style={{ width: "100%" }}>{loading ? "Přihlašuji..." : "Vstoupit"}</Btn><div style={{ textAlign: "center", marginTop: 14, display: "flex", justifyContent: "center", gap: 16 }}><button onClick={() => onNav("register")} style={{ background: "none", border: "none", color: C.accD, fontSize: 11, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Mám pozvánku</button><button onClick={handleReset} style={{ background: "none", border: "none", color: C.txM, fontSize: 11, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Zapomenuté heslo</button></div></Crd></div>;
+  return <div style={{ maxWidth: 360, margin: "0 auto", padding: "60px 20px" }}><div style={{ textAlign: "center", marginBottom: 36 }}><div style={{ fontSize: 10, letterSpacing: 4, color: C.accD, textTransform: "uppercase", marginBottom: 6 }}>{S.appName}</div><h1 style={{ fontSize: 22, color: C.acc, letterSpacing: 2, margin: 0, textTransform: "uppercase", fontFamily: "inherit" }}>{S.loginTitle}</h1></div><Crd><Inp label={S.loginEmail} type="email" value={em} onChange={v => { setEm(v); setErr(""); }} placeholder="vas@email.cz" required /><Inp label={S.loginPassword} type="password" value={pw} onChange={v => { setPw(v); setErr(""); }} placeholder="••••••••" required />{err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10, padding: "7px 10px", background: "rgba(168,50,50,0.1)", borderRadius: 4 }}>{err}</div>}<Btn onClick={go} disabled={loading} style={{ width: "100%" }}>{loading ? S.loginSubmitting : S.loginSubmit}</Btn><div style={{ textAlign: "center", marginTop: 14, display: "flex", justifyContent: "center", gap: 16 }}><button onClick={() => onNav("register")} style={{ background: "none", border: "none", color: C.accD, fontSize: 11, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>{S.loginHaveInvite}</button><button onClick={handleReset} style={{ background: "none", border: "none", color: C.txM, fontSize: 11, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>{S.loginForgot}</button></div></Crd></div>;
 }
 
 function Register({ onNav }) {
@@ -277,7 +301,7 @@ function NotifPrefs({ user }) {
 
 function Dashboard({ user, events, onNav }) {
   const up = events.filter(e => e.status === "upcoming"), past = events.filter(e => e.status === "past").slice(0, 3);
-  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ marginBottom: 24 }}><div style={{ fontSize: 10, letterSpacing: 3, color: C.accD, textTransform: "uppercase", marginBottom: 3 }}>Vítej zpět</div><h1 style={{ fontSize: 24, color: C.acc, margin: 0, fontFamily: "inherit" }}>{user.nickname || user.fullName}</h1></div><Sec title="Nadcházející akce">{up.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Žádné nadcházející akce.</div></Crd>}{up.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}><div><h3 style={{ margin: "0 0 5px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc }}>{ev.date} — {ev.location}</div></div><Badge color={C.acc}>SOON</Badge></div></Crd>)}</Sec><Sec title="Proběhlé">{past.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Zatím žádné.</div></Crd>}{past.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)} style={{ opacity: .75 }}><h3 style={{ margin: 0, fontSize: 14, color: C.txM, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 11, color: C.accD }}>{ev.date}</div></Crd>)}</Sec><Sec title="Nastavení"><NotifPrefs user={user} /></Sec></div>;
+  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ marginBottom: 24 }}><div style={{ fontSize: 10, letterSpacing: 3, color: C.accD, textTransform: "uppercase", marginBottom: 3 }}>{S.dashWelcome}</div><h1 style={{ fontSize: 24, color: C.acc, margin: 0, fontFamily: "inherit" }}>{user.nickname || user.fullName}</h1></div><Sec title={S.dashUpcoming}>{up.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>{S.dashNoUpcoming}</div></Crd>}{up.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}><div style={{ display: "flex", gap: 12 }}>{ev.flyer && <img src={ev.flyer} style={{ width: 50, height: 50, objectFit: "cover", borderRadius: 4, border: `1px solid ${C.brd}`, flexShrink: 0 }} />}<div><h3 style={{ margin: "0 0 5px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc }}>{ev.date} — {ev.location}</div></div></div><Badge color={C.acc}>{S.soon}</Badge></div></Crd>)}</Sec><Sec title={S.dashPast}>{past.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Zatím žádné.</div></Crd>}{past.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)} style={{ opacity: .75 }}><h3 style={{ margin: 0, fontSize: 14, color: C.txM, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 11, color: C.accD }}>{ev.date}</div></Crd>)}</Sec><Sec title={S.dashSettings}><NotifPrefs user={user} /></Sec></div>;
 }
 
 /* ═══ Event Detail ═══════════════════════════════════════════════ */
@@ -288,6 +312,7 @@ function EvDetail({ eid, user, events, onNav }) {
   const [gals, setGals] = useState([]); const [auds, setAuds] = useState([]); const [vids, setVids] = useState([]);
   const [msgCount, setMsgCount] = useState(0); const [showChat, setShowChat] = useState(false); const [showUp, setShowUp] = useState(null);
   const [upPhotos, setUpPhotos] = useState([]); const [lbPhotos, setLbPhotos] = useState(null); const [lbIdx, setLbIdx] = useState(0); const [saving, setSaving] = useState(false);
+  const [adLink, setAdLink] = useState({ title: "", url: "" }); const [showAdDocs, setShowAdDocs] = useState(false);
 
   useEffect(() => {
     const u = []; u.push(DB.onGalleryByEvent(eid, setGals)); u.push(DB.onAudio(all => setAuds(all.filter(a => a.eventId === eid)))); u.push(DB.onVideos(all => setVids(all.filter(v => v.eventId === eid)))); u.push(DB.onMessages(eid, ms => setMsgCount(ms.length), 200));
@@ -318,7 +343,15 @@ function EvDetail({ eid, user, events, onNav }) {
     <h1 style={{ fontSize: 22, color: C.acc, margin: "0 0 6px", fontFamily: "inherit" }}>{ev.title}</h1>
     <div style={{ fontSize: 13, color: C.grnL, marginBottom: 20 }}>{ev.date} — {ev.location}</div>
     <Crd><p style={{ margin: 0, fontSize: 14, color: C.tx, lineHeight: 1.7 }}>{ev.description}</p></Crd>
-    {ev.lineup?.length > 0 && <Sec title="Lineup"><Crd><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ev.lineup.map((a, i) => <span key={i} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, background: C.srfL, color: C.tx, border: `1px solid ${C.brd}` }}>{a}</span>)}</div></Crd></Sec>}
+    {ev.flyer && <Sec title="Leták"><Crd><img src={ev.flyer} style={{ maxWidth: "100%", borderRadius: 4, display: "block" }} /></Crd></Sec>}
+    {ev.lineup?.length > 0 && <Sec title="Lineup"><Crd><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ev.lineup.map((a, i) => {
+      const name = typeof a === "string" ? a : a.name;
+      const links = typeof a === "object" ? (a.links || []) : [];
+      return <div key={i} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, background: C.srfL, color: C.tx, border: `1px solid ${C.brd}`, display: "flex", alignItems: "center", gap: 6 }}>
+        <span>{name}</span>
+        {links.filter(Boolean).map((lk, li) => <a key={li} href={lk} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 9, color: C.acc, textDecoration: "none", background: C.acc + "20", padding: "1px 5px", borderRadius: 3, fontWeight: "bold" }}>{linkIcon(lk)}</a>)}
+      </div>;
+    })}</div></Crd></Sec>}
     <Sec title="Fotogalerie" right={isA && <Btn v="small" onClick={() => setShowUp(showUp === "photos" ? null : "photos")}>{showUp === "photos" ? "Zavřít" : "+ Fotky"}</Btn>}>
       {showUp === "photos" && <Crd style={{ borderColor: C.acc }}><DropZone onFiles={handlePhotoFiles} label="Přetáhni fotky (JPG, PNG, WebP)" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}><PhotoImg photo={p} size={48} /><span style={{ fontSize: 11, color: C.tx }}>{p.caption}</span><button onClick={() => setUpPhotos(ps => ps.filter(x => x.id !== p.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: 0 }}>×</button></div>)}</div><Btn onClick={savePhotos} disabled={saving}>{saving ? "Ukládám..." : `Uložit ${upPhotos.length} fotek`}</Btn></>}</Crd>}
       {gals.map(g => <Crd key={g.id}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>{(g.photos || []).map((p, i) => <div key={p.id} style={{ position: "relative", flexShrink: 0 }}><PhotoImg photo={p} size={90} onClick={() => { setLbPhotos(g.photos); setLbIdx(i); }} />{isA && <button onClick={() => { if (confirm("Smazat fotku?")) DB.removePhotoFromGallery(g.id, p.id).catch(e => alert(e.message)); }} style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,.7)", border: "none", color: C.red, cursor: "pointer", fontSize: 12, width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}</div>)}</div>{isA && <button onClick={() => { if (confirm("Smazat celou galerii?")) DB.deleteGalleryDoc(g.id).catch(e => alert(e.message)); }} style={{ background: "none", border: "none", color: C.red, fontSize: 10, cursor: "pointer", fontFamily: "inherit", marginTop: 6, opacity: .7 }}>Smazat galerii</button>}</Crd>)}
@@ -338,19 +371,80 @@ function EvDetail({ eid, user, events, onNav }) {
       {showChat && <div style={{ height: 350 }}><MiniChat user={user} room={eid} events={events} /></div>}
       {!showChat && <Crd hov onClick={() => setShowChat(true)}><div style={{ fontSize: 12, color: C.txM }}>{msgCount > 0 ? `${msgCount} zpráv` : "Začni diskuzi!"}</div></Crd>}
     </Sec>
+    {isA && <Sec title="Organizátorské dokumenty (admin)" right={<Btn v="small" onClick={() => setShowAdDocs(!showAdDocs)}>{showAdDocs ? "Skrýt" : "Zobrazit"}</Btn>}>
+      {showAdDocs && <Crd style={{ borderColor: C.accD }}>
+        <div style={{ fontSize: 10, color: C.txM, marginBottom: 10 }}>Odkazy na Google Docs, PDF, tasky atd. — viditelné jen pro adminy.</div>
+        {(ev.adminDocs || []).map((doc, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.brd}` }}>
+          <a href={doc.url} target="_blank" rel="noopener noreferrer" style={{ color: C.acc, fontSize: 12, textDecoration: "underline" }}>{doc.title || doc.url}</a>
+          <button onClick={() => { const nd = (ev.adminDocs || []).filter((_, j) => j !== i); DB.updateEvent(eid, { adminDocs: nd }).catch(e => alert(e.message)); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12 }}>×</button>
+        </div>)}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <input value={adLink.title} onChange={e => setAdLink(p => ({ ...p, title: e.target.value }))} placeholder="Název" style={{ flex: 1, padding: "6px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit", outline: "none" }} />
+          <input value={adLink.url} onChange={e => setAdLink(p => ({ ...p, url: e.target.value }))} placeholder="https://docs.google.com/..." style={{ flex: 2, padding: "6px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit", outline: "none" }} />
+          <Btn v="small" onClick={() => { if (!adLink.url) return; DB.updateEvent(eid, { adminDocs: [...(ev.adminDocs || []), { title: adLink.title || adLink.url, url: adLink.url }] }).then(() => setAdLink({ title: "", url: "" })).catch(e => alert(e.message)); }}>+</Btn>
+        </div>
+      </Crd>}
+    </Sec>}
+  </div>;
+}
+
+/* ═══ Link icons ════════════════════════════════════════════════ */
+const linkIcon = (url) => {
+  if (!url) return "🔗";
+  if (url.includes("instagram.com")) return "IG";
+  if (url.includes("facebook.com")) return "FB";
+  if (url.includes("soundcloud.com")) return "SC";
+  if (url.includes("twitter.com") || url.includes("x.com")) return "X";
+  if (url.includes("mixcloud.com")) return "MX";
+  if (url.includes("bandcamp.com")) return "BC";
+  return "🔗";
+};
+
+/* ═══ Lineup Editor ════════════════════════════════════════════ */
+function LineupEditor({ lineup, onChange }) {
+  const add = () => onChange([...lineup, { name: "", links: [] }]);
+  const rm = i => onChange(lineup.filter((_, j) => j !== i));
+  const setName = (i, v) => { const n = [...lineup]; n[i] = { ...n[i], name: v }; onChange(n); };
+  const addLink = i => { const n = [...lineup]; n[i] = { ...n[i], links: [...(n[i].links || []), ""] }; onChange(n); };
+  const setLink = (i, li, v) => { const n = [...lineup]; const lks = [...(n[i].links || [])]; lks[li] = v; n[i] = { ...n[i], links: lks }; onChange(n); };
+  const rmLink = (i, li) => { const n = [...lineup]; n[i] = { ...n[i], links: (n[i].links || []).filter((_, j) => j !== li) }; onChange(n); };
+
+  return <div style={{ marginBottom: 14 }}>
+    <label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 8, fontFamily: "inherit" }}>Lineup</label>
+    {lineup.map((a, i) => <div key={i} style={{ background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, padding: 10, marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: (a.links?.length > 0) ? 8 : 0 }}>
+        <input value={a.name} onChange={e => setName(i, e.target.value)} placeholder="Jméno / alias" style={{ flex: 1, padding: "7px 10px", background: C.srf, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+        <button onClick={() => addLink(i)} title="Přidat odkaz" style={{ background: "none", border: `1px solid ${C.brd}`, color: C.acc, width: 28, height: 28, borderRadius: 4, cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>+🔗</button>
+        <button onClick={() => rm(i)} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, width: 28, height: 28, borderRadius: 4, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+      </div>
+      {(a.links || []).map((lk, li) => <div key={li} style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, marginLeft: 12 }}>
+        <span style={{ fontSize: 10, color: C.txM, width: 20 }}>{linkIcon(lk)}</span>
+        <input value={lk} onChange={e => setLink(i, li, e.target.value)} placeholder="https://instagram.com/..." style={{ flex: 1, padding: "5px 8px", background: C.srf, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit", outline: "none" }} />
+        <button onClick={() => rmLink(i, li)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: 0 }}>×</button>
+      </div>)}
+    </div>)}
+    <button onClick={add} style={{ background: "none", border: `1px dashed ${C.brd}`, color: C.acc, padding: "6px 14px", borderRadius: 4, fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>+ Přidat artista</button>
   </div>;
 }
 
 /* ═══ Events List ════════════════════════════════════════════════ */
 function Events({ user, events, onNav }) {
-  const [show, setShow] = useState(false); const [f, setF] = useState({ t: "", d: "", l: "", desc: "", lin: "", st: "upcoming" }); const [saving, setSaving] = useState(false);
+  const [show, setShow] = useState(false); const [f, setF] = useState({ t: "", d: "", l: "", desc: "", lin: [], st: "upcoming", flyer: null }); const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState(""); const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
   const isA = user.role === "admin";
-  const startEdit = (ev) => { setEditId(ev.id); setF({ t: ev.title, d: ev.date, l: ev.location, desc: ev.description || "", lin: (ev.lineup || []).join(", "), st: ev.status || "upcoming" }); setShow(true); };
-  const cancel = () => { setShow(false); setEditId(null); setF({ t: "", d: "", l: "", desc: "", lin: "", st: "upcoming" }); };
+  const parseLin = (ev) => {
+    if (!ev.lineup) return [];
+    if (Array.isArray(ev.lineup) && ev.lineup.length > 0 && typeof ev.lineup[0] === "object") return ev.lineup;
+    return (ev.lineup || []).map(n => ({ name: typeof n === "string" ? n : n.name || "", links: n.links || [] }));
+  };
+  const startEdit = (ev) => { setEditId(ev.id); setF({ t: ev.title, d: ev.date, l: ev.location, desc: ev.description || "", lin: parseLin(ev), st: ev.status || "upcoming", flyer: ev.flyer || null }); setShow(true); };
+  const cancel = () => { setShow(false); setEditId(null); setF({ t: "", d: "", l: "", desc: "", lin: [], st: "upcoming", flyer: null }); };
+  const handleFlyer = async (files) => { if (files[0]) { const url = await readFileAsThumb(files[0]); setF(p => ({ ...p, flyer: url })); } };
   const save = async () => {
     if (!f.t || !f.d || !f.l) return; setSaving(true);
-    const data = { title: f.t, date: f.d, location: f.l, description: f.desc, status: f.st, lineup: f.lin ? f.lin.split(",").map(s => s.trim()) : [] };
+    const lineup = f.lin.filter(a => a.name.trim()).map(a => ({ name: a.name.trim(), links: (a.links || []).filter(Boolean) }));
+    const data = { title: f.t, date: f.d, location: f.l, description: f.desc, status: f.st, lineup, flyer: f.flyer || null };
     try {
       if (editId) { await DB.updateEvent(editId, data); }
       else { await DB.createEvent(data); }
@@ -362,42 +456,114 @@ function Events({ user, events, onNav }) {
     if (!confirm(`Smazat akci "${ev.title}"?`)) return;
     try { await DB.deleteEvent(ev.id); } catch (e) { alert("Chyba: " + e.message); }
   };
-  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Akce</h1>{isA && <Btn v="secondary" onClick={() => show ? cancel() : setShow(true)}>{show ? "Zrušit" : "+ Přidat"}</Btn>}</div>{show && <Crd style={{ borderColor: C.acc }}><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>{editId ? "Upravit akci" : "Nová akce"}</div><Inp label="Název" value={f.t} onChange={v => setF(p => ({ ...p, t: v }))} required /><Inp label="Datum" type="date" value={f.d} onChange={v => setF(p => ({ ...p, d: v }))} required /><Inp label="Místo" value={f.l} onChange={v => setF(p => ({ ...p, l: v }))} required /><Inp label="Popis" type="textarea" value={f.desc} onChange={v => setF(p => ({ ...p, desc: v }))} /><Inp label="Lineup (čárkou)" value={f.lin} onChange={v => setF(p => ({ ...p, lin: v }))} /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>Stav</label><div style={{ display: "flex", gap: 8 }}>{[{ v: "upcoming", l: "Nadcházející" }, { v: "past", l: "Proběhlá" }].map(s => <button key={s.v} onClick={() => setF(p => ({ ...p, st: s.v }))} style={{ padding: "7px 18px", borderRadius: 4, fontSize: 12, fontFamily: "inherit", cursor: "pointer", background: f.st === s.v ? C.acc : "transparent", color: f.st === s.v ? "#0a0f0a" : C.txM, border: `1px solid ${f.st === s.v ? "transparent" : C.brd}` }}>{s.l}</button>)}</div></div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : editId ? "Uložit změny" : "Vytvořit"}</Btn></Crd>}{events.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h3 style={{ margin: "0 0 4px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc, marginBottom: 4 }}>{ev.date} — {ev.location}</div><p style={{ fontSize: 12, color: C.txM, margin: 0 }}>{(ev.description || "").slice(0, 80)}...</p></div>{isA && <div style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={e => { e.stopPropagation(); startEdit(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.acc, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✎</button><button onClick={e => { e.stopPropagation(); del(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✕</button></div>}</div></Crd>)}</div>;
+  const filtered = events.filter(ev => {
+    if (search && !ev.title.toLowerCase().includes(search.toLowerCase()) && !(ev.lineup || []).some(a => (typeof a === "string" ? a : a.name || "").toLowerCase().includes(search.toLowerCase()))) return false;
+    if (dateFrom && ev.date < dateFrom) return false;
+    if (dateTo && ev.date > dateTo) return false;
+    return true;
+  });
+  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Akce</h1>{isA && <Btn v="secondary" onClick={() => show ? cancel() : setShow(true)}>{show ? "Zrušit" : "+ Přidat"}</Btn>}</div>
+    <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Hledat název nebo artista..." style={{ flex: 1, minWidth: 140, padding: "8px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 12, fontFamily: "inherit", outline: "none" }} /><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit" }} /><span style={{ color: C.txM, fontSize: 12, alignSelf: "center" }}>—</span><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit" }} />{(search || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.txM, padding: "6px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Reset</button>}</div>
+    {show && <Crd style={{ borderColor: C.acc }}><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>{editId ? "Upravit akci" : "Nová akce"}</div><Inp label="Název" value={f.t} onChange={v => setF(p => ({ ...p, t: v }))} required /><Inp label="Datum" type="date" value={f.d} onChange={v => setF(p => ({ ...p, d: v }))} required /><Inp label="Místo" value={f.l} onChange={v => setF(p => ({ ...p, l: v }))} required /><Inp label="Popis" type="textarea" value={f.desc} onChange={v => setF(p => ({ ...p, desc: v }))} />
+    <LineupEditor lineup={f.lin} onChange={v => setF(p => ({ ...p, lin: v }))} />
+    <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>Leták</label>{f.flyer ? <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}><img src={f.flyer} style={{ width: 100, borderRadius: 4, border: `1px solid ${C.brd}` }} /><button onClick={() => setF(p => ({ ...p, flyer: null }))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14 }}>×</button></div> : <DropZone onFiles={handleFlyer} label="JPG, PNG letáku" accept="image/*" />}</div>
+    <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>Stav</label><div style={{ display: "flex", gap: 8 }}>{[{ v: "upcoming", l: "Nadcházející" }, { v: "past", l: "Proběhlá" }].map(s => <button key={s.v} onClick={() => setF(p => ({ ...p, st: s.v }))} style={{ padding: "7px 18px", borderRadius: 4, fontSize: 12, fontFamily: "inherit", cursor: "pointer", background: f.st === s.v ? C.acc : "transparent", color: f.st === s.v ? "#0a0f0a" : C.txM, border: `1px solid ${f.st === s.v ? "transparent" : C.brd}` }}>{s.l}</button>)}</div></div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : editId ? "Uložit změny" : "Vytvořit"}</Btn></Crd>}
+    {filtered.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM, textAlign: "center" }}>Žádné akce{search ? ` pro "${search}"` : ""}.</div></Crd>}
+    {filtered.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}><div style={{ display: "flex", gap: 12, flex: 1 }}>{ev.flyer && <img src={ev.flyer} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4, border: `1px solid ${C.brd}`, flexShrink: 0 }} />}<div><h3 style={{ margin: "0 0 4px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc, marginBottom: 4 }}>{ev.date} — {ev.location}</div><p style={{ fontSize: 12, color: C.txM, margin: 0 }}>{(ev.description || "").slice(0, 80)}...</p></div></div>{isA && <div style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={e => { e.stopPropagation(); startEdit(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.acc, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✎</button><button onClick={e => { e.stopPropagation(); del(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✕</button></div>}</div></Crd>)}</div>;
 }
 
 /* ═══ Gallery ════════════════════════════════════════════════════ */
 function GalList({ onNav, user, events }) {
-  const isA = user?.role === "admin"; const [showAdd, setShowAdd] = useState(false);
+  const isA = user?.role === "admin"; const [showAdd, setShowAdd] = useState(false); const [addToId, setAddToId] = useState(null);
   const [folderName, setFolderName] = useState(""); const [eventLink, setEventLink] = useState(""); const [upPhotos, setUpPhotos] = useState([]);
   const [gals, setGals] = useState([]); const [saving, setSaving] = useState(false);
   useEffect(() => DB.onGallery(setGals), []);
   const handleFiles = async (files) => { const np = []; for (const f of files) { const url = await readFileAsDataUrl(f); np.push({ id: "up" + Date.now() + Math.random(), caption: f.name.replace(/\.[^.]+$/, ""), ph: f.name, url }); } setUpPhotos(p => [...p, ...np]); };
+  const cancelAdd = () => { setShowAdd(false); setAddToId(null); setFolderName(""); setEventLink(""); setUpPhotos([]); };
+  const startAddTo = (g) => { setAddToId(g.id); setShowAdd(false); setUpPhotos([]); };
+  const saveAddTo = async () => {
+    if (!upPhotos.length || !addToId) return; setSaving(true);
+    try {
+      const { updateDoc: fbUpdate, doc: fbDoc } = await import('firebase/firestore');
+      const { db: fireDb } = await import('./lib/firebase.js');
+      const g = gals.find(x => x.id === addToId);
+      const photos = upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null }));
+      await fbUpdate(fbDoc(fireDb, 'gallery', addToId), { photos: [...(g?.photos || []), ...photos] });
+      setAddToId(null); setUpPhotos([]);
+    } catch (e) { console.error(e); alert("Chyba: " + e.message); }
+    setSaving(false);
+  };
   const save = async () => {
-    if (!folderName.trim() || !upPhotos.length) return; setSaving(true);
+    if (!upPhotos.length) return;
+    const title = eventLink ? (events.find(e => e.id === eventLink)?.title || "Galerie") + " — Fotky" : folderName.trim();
+    if (!title) { alert("Vyplň název složky nebo vyber akci."); return; }
+    // If event selected, check if gallery already exists for that event
+    if (eventLink) {
+      const existing = gals.find(g => g.eventId === eventLink);
+      if (existing) {
+        setSaving(true);
+        try {
+          const { updateDoc: fbUpdate, doc: fbDoc } = await import('firebase/firestore');
+          const { db: fireDb } = await import('./lib/firebase.js');
+          const photos = upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null }));
+          await fbUpdate(fbDoc(fireDb, 'gallery', existing.id), { photos: [...(existing.photos || []), ...photos] });
+          cancelAdd();
+        } catch (e) { console.error(e); alert("Chyba: " + e.message); }
+        setSaving(false); return;
+      }
+    }
+    setSaving(true);
     try {
       const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
       const { db: fireDb } = await import('./lib/firebase.js');
-      await addDoc(collection(fireDb, 'gallery'), { eventId: eventLink || null, title: folderName, photos: upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null })), uploadedBy: user.uid, createdAt: serverTimestamp() });
-      setShowAdd(false); setFolderName(""); setEventLink(""); setUpPhotos([]);
+      await addDoc(collection(fireDb, 'gallery'), { eventId: eventLink || null, title, photos: upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null })), uploadedBy: user.uid, createdAt: serverTimestamp() });
+      cancelAdd();
     } catch (e) { console.error(e); alert("Chyba: " + e.message); }
     setSaving(false);
   };
   return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Galerie</h1>{isA && <Btn v="secondary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? "Zrušit" : "+ Nová složka"}</Btn>}</div>
-    {showAdd && <Crd style={{ borderColor: C.acc }}><Inp label="Název složky" value={folderName} onChange={setFolderName} required /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>K akci (volitelné)</label><select value={eventLink} onChange={e => setEventLink(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit" }}><option value="">— bez přiřazení —</option>{events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}</select></div><DropZone onFiles={handleFiles} label="Přetáhni fotky" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <PhotoImg key={p.id} photo={p} size={48} />)}</div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : `Vytvořit (${upPhotos.length} fotek)`}</Btn></>}</Crd>}
-    {gals.map(g => { const ev = g.eventId ? events.find(e => e.id === g.eventId) : null; return <Crd key={g.id} hov onClick={() => onNav("gallery:" + g.id)}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>{(g.photos || []).slice(0, 5).map(p => <PhotoImg key={p.id} photo={p} size={90} />)}</div><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}><div><h3 style={{ margin: "0 0 3px", fontSize: 14, color: C.tx, fontFamily: "inherit" }}>{g.title}</h3><div style={{ display: "flex", gap: 12 }}><span style={{ fontSize: 11, color: C.txM }}>{(g.photos || []).length} fotek</span>{ev && <EvLink event={ev} onNav={onNav} />}</div></div>{isA && <button onClick={e => { e.stopPropagation(); if (confirm(`Smazat galerii "${g.title}"?`)) DB.deleteGalleryDoc(g.id).catch(err => alert(err.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>}</div></Crd>; })}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Galerie</h1>{isA && <Btn v="secondary" onClick={() => showAdd ? cancelAdd() : setShowAdd(true)}>{showAdd ? "Zrušit" : "+ Nová složka"}</Btn>}</div>
+    {showAdd && <Crd style={{ borderColor: C.acc }}>
+      <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>K akci</label><select value={eventLink} onChange={e => { setEventLink(e.target.value); if (e.target.value) setFolderName(""); }} style={{ width: "100%", padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit" }}><option value="">— vlastní název —</option>{events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}</select></div>
+      {!eventLink && <Inp label="Název složky" value={folderName} onChange={setFolderName} required />}
+      {eventLink && gals.find(g => g.eventId === eventLink) && <div style={{ fontSize: 11, color: C.grnL, marginBottom: 10 }}>✓ Galerie pro tuto akci existuje — fotky budou přidány k existující.</div>}
+      <DropZone onFiles={handleFiles} label="Přetáhni fotky" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <PhotoImg key={p.id} photo={p} size={48} />)}</div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : `Uložit (${upPhotos.length} fotek)`}</Btn></>}
+    </Crd>}
+    {gals.map(g => { const ev = g.eventId ? events.find(e => e.id === g.eventId) : null; return <Crd key={g.id} hov onClick={() => addToId === g.id ? null : onNav("gallery:" + g.id)}>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>{(g.photos || []).slice(0, 5).map(p => <PhotoImg key={p.id} photo={p} size={90} />)}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}><div><h3 style={{ margin: "0 0 3px", fontSize: 14, color: C.tx, fontFamily: "inherit" }}>{g.title}</h3><div style={{ display: "flex", gap: 12 }}><span style={{ fontSize: 11, color: C.txM }}>{(g.photos || []).length} fotek</span>{ev && <EvLink event={ev} onNav={onNav} />}</div></div><div style={{ display: "flex", gap: 6 }}>{isA && addToId !== g.id && <button onClick={e => { e.stopPropagation(); startAddTo(g); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.acc, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>+ Fotky</button>}{isA && <button onClick={e => { e.stopPropagation(); if (confirm(`Smazat galerii "${g.title}"?`)) DB.deleteGalleryDoc(g.id).catch(err => alert(err.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>}</div></div>
+      {addToId === g.id && <div style={{ marginTop: 12, borderTop: `1px solid ${C.brd}`, paddingTop: 12 }} onClick={e => e.stopPropagation()}>
+        <DropZone onFiles={handleFiles} label="Přidej fotky do této složky" accept="image/*" />
+        {upPhotos.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <PhotoImg key={p.id} photo={p} size={48} />)}</div>}
+        <div style={{ display: "flex", gap: 8 }}>{upPhotos.length > 0 && <Btn v="small" onClick={saveAddTo} disabled={saving}>{saving ? "Ukládám..." : `Přidat ${upPhotos.length} fotek`}</Btn>}<button onClick={e => { e.stopPropagation(); setAddToId(null); setUpPhotos([]); }} style={{ background: "none", border: "none", color: C.txM, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Zrušit</button></div>
+      </div>}
+    </Crd>; })}
   </div>;
 }
 function GalDetail({ gid, onNav, backTo, user }) {
   const [g, setG] = useState(null); const [lbIdx, setLbIdx] = useState(null);
   const isA = user?.role === "admin";
+  const [showUp, setShowUp] = useState(false); const [upPhotos, setUpPhotos] = useState([]); const [saving, setSaving] = useState(false);
   useEffect(() => DB.onGallery(gs => setG(gs.find(x => x.id === gid) || null)), [gid]);
+  const handleFiles = async (files) => { const np = []; for (const f of files) { const url = await readFileAsDataUrl(f); np.push({ id: "up" + Date.now() + Math.random(), caption: f.name.replace(/\.[^.]+$/, ""), ph: f.name, url }); } setUpPhotos(p => [...p, ...np]); };
+  const savePhotos = async () => {
+    if (!upPhotos.length) return; setSaving(true);
+    try {
+      const { updateDoc: fbUpdate, doc: fbDoc } = await import('firebase/firestore');
+      const { db: fireDb } = await import('./lib/firebase.js');
+      const photos = upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null }));
+      await fbUpdate(fbDoc(fireDb, 'gallery', gid), { photos: [...(g?.photos || []), ...photos] });
+      setUpPhotos([]); setShowUp(false);
+    } catch (e) { console.error(e); alert("Chyba: " + e.message); }
+    setSaving(false);
+  };
   if (!g) return <Loading />;
   const bk = backTo?.startsWith("events:") ? backTo : "gallery";
   return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}>
     {lbIdx !== null && <Lightbox photos={g.photos || []} currentIndex={lbIdx} onClose={() => setLbIdx(null)} onNav={setLbIdx} />}
     <button onClick={() => onNav(bk)} style={{ background: "none", border: "none", color: C.accD, fontSize: 12, cursor: "pointer", fontFamily: "inherit", marginBottom: 16, padding: 0 }}>← Zpět</button>
-    <h1 style={{ fontSize: 20, color: C.acc, margin: "0 0 20px", fontFamily: "inherit" }}>{g.title}</h1>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit" }}>{g.title}</h1>{isA && <Btn v="small" onClick={() => setShowUp(!showUp)}>{showUp ? "Zrušit" : "+ Fotky"}</Btn>}</div>
+    {showUp && <Crd style={{ borderColor: C.acc, marginBottom: 16 }}><DropZone onFiles={handleFiles} label="Přidej fotky" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <PhotoImg key={p.id} photo={p} size={48} />)}</div><Btn onClick={savePhotos} disabled={saving}>{saving ? "Ukládám..." : `Přidat ${upPhotos.length} fotek`}</Btn></>}</Crd>}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>{(g.photos || []).map((p, i) => <div key={p.id} style={{ position: "relative" }}><PhotoImg photo={p} size={160} onClick={() => setLbIdx(i)} />{isA && <button onClick={e => { e.stopPropagation(); if (confirm("Smazat fotku?")) DB.removePhotoFromGallery(g.id, p.id).catch(err => alert(err.message)); }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,.7)", border: "none", color: C.red, cursor: "pointer", fontSize: 12, width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}<div style={{ fontSize: 11, color: C.txM, marginTop: 4, textAlign: "center" }}>{p.caption}</div></div>)}</div>
   </div>;
 }
@@ -426,7 +592,7 @@ function MediaPage({ user, events, onNav }) {
 /* ═══ Chat Page ══════════════════════════════════════════════════ */
 function ChatPage({ user, events }) {
   const [mode, setMode] = useState("all");
-  const rooms = [{ id: "all", l: "Vše" }, { id: "general", l: "Hlavní" }, ...events.map(e => ({ id: e.id, l: e.title.length > 18 ? e.title.slice(0, 18) + "…" : e.title }))];
+  const rooms = [{ id: "all", l: S.chatAll }, { id: "general", l: S.chatGeneral }, ...events.map(e => ({ id: e.id, l: e.title.length > 18 ? e.title.slice(0, 18) + "…" : e.title }))];
   return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px", display: "flex", flexDirection: "column", height: "calc(100vh - 100px)" }}><h1 style={{ fontSize: 20, color: C.acc, margin: "0 0 12px", fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Chat</h1><div style={{ display: "flex", gap: 4, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>{rooms.map(r => <button key={r.id} onClick={() => setMode(r.id)} style={{ background: mode === r.id ? C.acc : "transparent", color: mode === r.id ? "#0a0f0a" : C.txM, border: `1px solid ${mode === r.id ? C.acc : C.brd}`, padding: "4px 12px", borderRadius: 4, fontSize: 10, fontFamily: "inherit", letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", fontWeight: mode === r.id ? "bold" : "normal" }}>{r.l}</button>)}</div><div style={{ flex: 1 }}><MiniChat user={user} room={mode === "all" ? "general" : mode} events={events} showLabels={mode === "all"} allRooms={mode === "all"} onRoomClick={id => setMode(id)} /></div></div>;
 }
 
@@ -493,7 +659,7 @@ export default function App() {
   const nav = useCallback((t, from) => { if (t === "logout") { fbLogout(); return; } setPrev(from || page); setPage(t); }, [page]);
   const [base, param] = page.split(":");
 
-  if (authLoading) return <div style={{ fontFamily: "'Courier New', monospace", background: C.bg, color: C.tx, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 18, color: C.acc, fontWeight: "bold", marginBottom: 8 }}>///</div><div style={{ fontSize: 11, color: C.txM, letterSpacing: 2, textTransform: "uppercase" }}>SwampSound System</div><div style={{ fontSize: 12, color: C.txM, marginTop: 12 }}>Načítání...</div></div></div>;
+  if (authLoading) return <div style={{ fontFamily: "'Courier New', monospace", background: C.bg, color: C.tx, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 18, color: C.acc, fontWeight: "bold", marginBottom: 8 }}>///</div><div style={{ fontSize: 11, color: C.txM, letterSpacing: 2, textTransform: "uppercase" }}>{S.appName} {S.appSub}</div><div style={{ fontSize: 12, color: C.txM, marginTop: 12 }}>{S.loading}</div></div></div>;
 
   return <div style={{ fontFamily: "'Courier New', monospace", background: C.bg, color: C.tx, minHeight: "100vh", lineHeight: 1.6 }}>
     <Nav user={user} onNav={nav} page={page} />
