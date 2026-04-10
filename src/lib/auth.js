@@ -135,5 +135,9 @@ export async function logout() {
 
 // ─── Reset hesla ────────────────────────────────────────────────
 export async function resetPassword(email) {
-  await sendPasswordResetEmail(auth, email);
+  const actionCodeSettings = {
+    url: 'https://pokustone.github.io/swampsound-platform/',
+    handleCodeInApp: false,
+  };
+  await sendPasswordResetEmail(auth, email, actionCodeSettings);
 }

@@ -83,6 +83,10 @@ export function onEmailInvites(callback) {
 
 // ═══ UŽIVATELÉ ══════════════════════════════════════════════════
 
+export async function updateUserPrefs(uid, prefs) {
+  return updateDoc(doc(db, 'users', uid), { notifications: prefs });
+}
+
 export function onUsers(callback) {
   return onSnapshot(
     query(collection(db, 'users'), orderBy('createdAt', 'desc')),
@@ -223,6 +227,36 @@ export function onVideos(callback) {
     query(collection(db, 'videos'), orderBy('createdAt', 'desc')),
     (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+}
+
+// ═══ DELETE helpers ═════════════════════════════════════════════
+
+export async function deleteEvent(id) {
+  return deleteDoc(doc(db, 'events', id));
+}
+
+export async function deleteGalleryDoc(id) {
+  return deleteDoc(doc(db, 'gallery', id));
+}
+
+export async function removePhotoFromGallery(galleryId, photoId) {
+  const snap = await getDoc(doc(db, 'gallery', galleryId));
+  if (!snap.exists()) return;
+  const photos = (snap.data().photos || []).filter(p => p.id !== photoId);
+  if (photos.length === 0) return deleteDoc(doc(db, 'gallery', galleryId));
+  return updateDoc(doc(db, 'gallery', galleryId), { photos });
+}
+
+export async function deleteAudioDoc(id) {
+  return deleteDoc(doc(db, 'audio', id));
+}
+
+export async function deleteVideoDoc(id) {
+  return deleteDoc(doc(db, 'videos', id));
+}
+
+export async function deleteMessage(id) {
+  return deleteDoc(doc(db, 'messages', id));
 }
 
 // ═══ CHAT ═══════════════════════════════════════════════════════
