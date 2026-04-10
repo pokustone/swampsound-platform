@@ -158,18 +158,30 @@ function AudioPlayer({ track }) {
 function MiniChat({ user, room, events = [], showLabels = false, allRooms = false, onRoomClick }) {
   const [msgs, setMsgs] = useState([]); const [txt, setTxt] = useState(""); const btm = useRef(null);
   const roomLabel = id => { if (id === "general") return "Hlavní chat"; return events.find(e => e.id === id)?.title || id; };
-  useEffect(() => { return allRooms ? DB.onAllMessages(setMsgs, 200) : DB.onMessages(room, setMsgs, 100); }, [room, allRooms]);
+  const effectiveRoom = allRooms ? null : (room || "general");
+  useEffect(() => { return allRooms ? DB.onAllMessages(setMsgs, 200) : DB.onMessages(effectiveRoom, setMsgs, 100); }, [effectiveRoom, allRooms]);
   useEffect(() => { btm.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length]);
   const send = async () => {
     if (!txt.trim()) return; const t = txt; setTxt("");
-    try { await DB.sendMessage({ room: room || "general", text: t, authorName: user.nickname || user.fullName, authorId: user.uid }); } catch (e) { console.error("Send:", e); }
+    const sendRoom = allRooms ? "general" : (room || "general");
+    try { await DB.sendMessage({ room: sendRoom, text: t, authorName: user.nickname || user.fullName, authorId: user.uid }); } catch (e) { console.error("Send:", e); }
+  };
+  const canDelete = (m) => {
+    if (user.role === "admin") return true;
+    if (m.authorId !== user.uid) return false;
+    const age = Date.now() - (m.ts || 0);
+    return age < 24 * 60 * 60 * 1000;
+  };
+  const handleDelete = async (m) => {
+    if (!confirm("Smazat zprávu?")) return;
+    try { await DB.deleteMessage(m.id); } catch (e) { console.error("Delete msg:", e); alert("Nelze smazat: " + e.message); }
   };
   return <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
     <div style={{ flex: 1, overflowY: "auto", padding: 12, background: C.srf, border: `1px solid ${C.brd}`, borderRadius: 6, marginBottom: 8 }}>
       {msgs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.txM, fontSize: 12 }}>Zatím žádné zprávy.</div>}
-      {msgs.map(m => { const me = m.authorName === (user.nickname || user.fullName); return <div key={m.id} style={{ marginBottom: 10 }}>
+      {msgs.map(m => { const me = m.authorId === user.uid; return <div key={m.id} style={{ marginBottom: 10, position: "relative" }}>
         {showLabels && <button onClick={e => { e.stopPropagation(); onRoomClick?.(m.room); }} style={{ fontSize: 10, color: m.room === "general" ? C.grnL : C.acc, background: (m.room === "general" ? C.grnL : C.acc) + "15", padding: "1px 8px", borderRadius: 3, marginBottom: 3, display: "inline-block", border: "none", cursor: "pointer", fontFamily: "inherit" }}>{roomLabel(m.room)} →</button>}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}><span style={{ fontSize: 12, fontWeight: "bold", color: me ? C.acc : C.grnL }}>{m.authorName}</span><span style={{ fontSize: 10, color: C.txM }}>{fmtT(m.ts)}</span></div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}><span style={{ fontSize: 12, fontWeight: "bold", color: me ? C.acc : C.grnL }}>{m.authorName}</span><span style={{ fontSize: 10, color: C.txM }}>{fmtT(m.ts)}</span>{canDelete(m) && <button onClick={() => handleDelete(m)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px", fontFamily: "inherit", opacity: .6 }} title="Smazat">×</button>}</div>
         <div style={{ fontSize: 13, color: C.tx, lineHeight: 1.5, marginTop: 1 }}>{m.text}</div>
       </div>; })}
       <div ref={btm} />
@@ -241,9 +253,31 @@ function Register({ onNav }) {
 }
 
 /* ═══ Dashboard ══════════════════════════════════════════════════ */
+function NotifPrefs({ user }) {
+  const defaults = { events: false, gallery: false, audio: false, video: false, channel: "email", telegram: "" };
+  const [p, setP] = useState({ ...defaults, ...(user.notifications || {}) });
+  const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
+  const toggle = k => setP(prev => ({ ...prev, [k]: !prev[k] }));
+  const save = async () => {
+    setSaving(true);
+    try { await DB.updateUserPrefs(user.uid, p); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { alert("Chyba: " + e.message); }
+    setSaving(false);
+  };
+  return <Crd>
+    <div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>Notifikace</div>
+    <div style={{ fontSize: 11, color: C.txM, marginBottom: 12 }}>Co chceš sledovat:</div>
+    {[{ k: "events", l: "Nové akce" }, { k: "gallery", l: "Fotky" }, { k: "audio", l: "Audio" }, { k: "video", l: "Videa" }].map(i => <label key={i.k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: C.tx, cursor: "pointer" }}><input type="checkbox" checked={p[i.k]} onChange={() => toggle(i.k)} style={{ accentColor: C.acc }} />{i.l}</label>)}
+    <div style={{ fontSize: 11, color: C.txM, margin: "12px 0 8px" }}>Kanál:</div>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>{[{ v: "email", l: "Email" }, { v: "sms", l: "SMS" }, { v: "telegram", l: "Telegram" }].map(c => <button key={c.v} onClick={() => setP(prev => ({ ...prev, channel: c.v }))} style={{ padding: "5px 14px", borderRadius: 4, fontSize: 11, fontFamily: "inherit", cursor: "pointer", background: p.channel === c.v ? C.acc : "transparent", color: p.channel === c.v ? "#0a0f0a" : C.txM, border: `1px solid ${p.channel === c.v ? "transparent" : C.brd}` }}>{c.l}</button>)}</div>
+    {p.channel === "telegram" && <Inp label="Telegram username" value={p.telegram} onChange={v => setP(prev => ({ ...prev, telegram: v }))} placeholder="@username" />}
+    <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Btn v="small" onClick={save} disabled={saving}>{saving ? "Ukládám..." : "Uložit"}</Btn>{saved && <span style={{ fontSize: 11, color: C.grnL }}>✓ Uloženo</span>}</div>
+    <div style={{ fontSize: 10, color: C.txM, marginTop: 8 }}>Odesílání notifikací bude aktivní po nasazení Cloud Functions.</div>
+  </Crd>;
+}
+
 function Dashboard({ user, events, onNav }) {
   const up = events.filter(e => e.status === "upcoming"), past = events.filter(e => e.status === "past").slice(0, 3);
-  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ marginBottom: 24 }}><div style={{ fontSize: 10, letterSpacing: 3, color: C.accD, textTransform: "uppercase", marginBottom: 3 }}>Vítej zpět</div><h1 style={{ fontSize: 24, color: C.acc, margin: 0, fontFamily: "inherit" }}>{user.nickname || user.fullName}</h1></div><Sec title="Nadcházející akce">{up.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Žádné nadcházející akce.</div></Crd>}{up.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}><div><h3 style={{ margin: "0 0 5px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc }}>{ev.date} — {ev.location}</div></div><Badge color={C.acc}>SOON</Badge></div></Crd>)}</Sec><Sec title="Proběhlé">{past.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Zatím žádné.</div></Crd>}{past.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)} style={{ opacity: .75 }}><h3 style={{ margin: 0, fontSize: 14, color: C.txM, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 11, color: C.accD }}>{ev.date}</div></Crd>)}</Sec></div>;
+  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ marginBottom: 24 }}><div style={{ fontSize: 10, letterSpacing: 3, color: C.accD, textTransform: "uppercase", marginBottom: 3 }}>Vítej zpět</div><h1 style={{ fontSize: 24, color: C.acc, margin: 0, fontFamily: "inherit" }}>{user.nickname || user.fullName}</h1></div><Sec title="Nadcházející akce">{up.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Žádné nadcházející akce.</div></Crd>}{up.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}><div><h3 style={{ margin: "0 0 5px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc }}>{ev.date} — {ev.location}</div></div><Badge color={C.acc}>SOON</Badge></div></Crd>)}</Sec><Sec title="Proběhlé">{past.length === 0 && <Crd><div style={{ fontSize: 12, color: C.txM }}>Zatím žádné.</div></Crd>}{past.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)} style={{ opacity: .75 }}><h3 style={{ margin: 0, fontSize: 14, color: C.txM, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 11, color: C.accD }}>{ev.date}</div></Crd>)}</Sec><Sec title="Nastavení"><NotifPrefs user={user} /></Sec></div>;
 }
 
 /* ═══ Event Detail ═══════════════════════════════════════════════ */
@@ -267,7 +301,7 @@ function EvDetail({ eid, user, events, onNav }) {
     try {
       const { addDoc, updateDoc: fbUpdate, doc: fbDoc, collection, serverTimestamp } = await import('firebase/firestore');
       const { db: fireDb } = await import('./lib/firebase.js');
-      const photos = upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: null }));
+      const photos = upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null }));
       if (gals.length > 0) { await fbUpdate(fbDoc(fireDb, 'gallery', gals[0].id), { photos: [...(gals[0].photos || []), ...photos] }); }
       else { await addDoc(collection(fireDb, 'gallery'), { eventId: eid, title: ev.title + " — Fotky", photos, uploadedBy: user.uid, createdAt: serverTimestamp() }); }
       setUpPhotos([]); setShowUp(null);
@@ -287,17 +321,17 @@ function EvDetail({ eid, user, events, onNav }) {
     {ev.lineup?.length > 0 && <Sec title="Lineup"><Crd><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{ev.lineup.map((a, i) => <span key={i} style={{ padding: "5px 14px", borderRadius: 20, fontSize: 12, background: C.srfL, color: C.tx, border: `1px solid ${C.brd}` }}>{a}</span>)}</div></Crd></Sec>}
     <Sec title="Fotogalerie" right={isA && <Btn v="small" onClick={() => setShowUp(showUp === "photos" ? null : "photos")}>{showUp === "photos" ? "Zavřít" : "+ Fotky"}</Btn>}>
       {showUp === "photos" && <Crd style={{ borderColor: C.acc }}><DropZone onFiles={handlePhotoFiles} label="Přetáhni fotky (JPG, PNG, WebP)" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}><PhotoImg photo={p} size={48} /><span style={{ fontSize: 11, color: C.tx }}>{p.caption}</span><button onClick={() => setUpPhotos(ps => ps.filter(x => x.id !== p.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: 0 }}>×</button></div>)}</div><Btn onClick={savePhotos} disabled={saving}>{saving ? "Ukládám..." : `Uložit ${upPhotos.length} fotek`}</Btn></>}</Crd>}
-      {gals.map(g => <Crd key={g.id}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>{(g.photos || []).map((p, i) => <PhotoImg key={p.id} photo={p} size={90} onClick={() => { setLbPhotos(g.photos); setLbIdx(i); }} />)}</div></Crd>)}
+      {gals.map(g => <Crd key={g.id}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>{(g.photos || []).map((p, i) => <div key={p.id} style={{ position: "relative", flexShrink: 0 }}><PhotoImg photo={p} size={90} onClick={() => { setLbPhotos(g.photos); setLbIdx(i); }} />{isA && <button onClick={() => { if (confirm("Smazat fotku?")) DB.removePhotoFromGallery(g.id, p.id).catch(e => alert(e.message)); }} style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,.7)", border: "none", color: C.red, cursor: "pointer", fontSize: 12, width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}</div>)}</div>{isA && <button onClick={() => { if (confirm("Smazat celou galerii?")) DB.deleteGalleryDoc(g.id).catch(e => alert(e.message)); }} style={{ background: "none", border: "none", color: C.red, fontSize: 10, cursor: "pointer", fontFamily: "inherit", marginTop: 6, opacity: .7 }}>Smazat galerii</button>}</Crd>)}
       {!gals.length && !showUp && <Crd><div style={{ fontSize: 12, color: C.txM, textAlign: "center" }}>Žádné fotky.</div></Crd>}
     </Sec>
     <Sec title="Audio" right={isA && <Btn v="small" onClick={() => setShowUp(showUp === "audio" ? null : "audio")}>{showUp === "audio" ? "Zavřít" : "+ Audio"}</Btn>}>
       {showUp === "audio" && <Crd style={{ borderColor: C.acc }}><DropZone onFiles={handleAudioFiles} label="MP3, WAV, FLAC, OGG..." accept="audio/*" /><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", margin: "8px 0 10px" }}>Nebo SoundCloud</div><EmbedInput onAdd={({ url }) => addScAudio(url)} placeholder="https://soundcloud.com/..." /></Crd>}
-      {auds.map(a => <Crd key={a.id}><AudioPlayer track={a} /></Crd>)}
+      {auds.map(a => <Crd key={a.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><AudioPlayer track={a} /></div>{isA && <button onClick={() => { if (confirm("Smazat audio?")) DB.deleteAudioDoc(a.id).catch(e => alert(e.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: 8 }}>✕</button>}</div></Crd>)}
       {!auds.length && !showUp && <Crd><div style={{ fontSize: 12, color: C.txM, textAlign: "center" }}>Žádné nahrávky.</div></Crd>}
     </Sec>
     <Sec title="Videa" right={isA && <Btn v="small" onClick={() => setShowUp(showUp === "video" ? null : "video")}>{showUp === "video" ? "Zavřít" : "+ Video"}</Btn>}>
       {showUp === "video" && <Crd style={{ borderColor: C.acc }}><EmbedInput onAdd={addVideo} placeholder="https://youtube.com/watch?v=..." /></Crd>}
-      {vids.map(v => { const p = parseUrl(v.embedUrl); return <Crd key={v.id}>{p?.type === "youtube" ? <YtEmbed videoId={p.id} title={v.title} /> : <div>{v.title}</div>}</Crd>; })}
+      {vids.map(v => { const p = parseUrl(v.embedUrl); return <Crd key={v.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}>{p?.type === "youtube" ? <YtEmbed videoId={p.id} title={v.title} /> : <div>{v.title}</div>}</div>{isA && <button onClick={() => { if (confirm("Smazat video?")) DB.deleteVideoDoc(v.id).catch(e => alert(e.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: 8 }}>✕</button>}</div></Crd>; })}
       {!vids.length && !showUp && <Crd><div style={{ fontSize: 12, color: C.txM, textAlign: "center" }}>Žádná videa.</div></Crd>}
     </Sec>
     <Sec title={`Diskuze (${msgCount})`} right={<Btn v="small" onClick={() => setShowChat(!showChat)}>{showChat ? "Skrýt" : "Zobrazit"}</Btn>}>
@@ -309,13 +343,26 @@ function EvDetail({ eid, user, events, onNav }) {
 
 /* ═══ Events List ════════════════════════════════════════════════ */
 function Events({ user, events, onNav }) {
-  const [show, setShow] = useState(false); const [f, setF] = useState({ t: "", d: "", l: "", desc: "", lin: "" }); const [saving, setSaving] = useState(false);
-  const add = async () => {
+  const [show, setShow] = useState(false); const [f, setF] = useState({ t: "", d: "", l: "", desc: "", lin: "", st: "upcoming" }); const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const isA = user.role === "admin";
+  const startEdit = (ev) => { setEditId(ev.id); setF({ t: ev.title, d: ev.date, l: ev.location, desc: ev.description || "", lin: (ev.lineup || []).join(", "), st: ev.status || "upcoming" }); setShow(true); };
+  const cancel = () => { setShow(false); setEditId(null); setF({ t: "", d: "", l: "", desc: "", lin: "", st: "upcoming" }); };
+  const save = async () => {
     if (!f.t || !f.d || !f.l) return; setSaving(true);
-    try { await DB.createEvent({ title: f.t, date: f.d, location: f.l, description: f.desc, status: "upcoming", lineup: f.lin ? f.lin.split(",").map(s => s.trim()) : [] }); setShow(false); setF({ t: "", d: "", l: "", desc: "", lin: "" }); } catch (e) { console.error(e); }
+    const data = { title: f.t, date: f.d, location: f.l, description: f.desc, status: f.st, lineup: f.lin ? f.lin.split(",").map(s => s.trim()) : [] };
+    try {
+      if (editId) { await DB.updateEvent(editId, data); }
+      else { await DB.createEvent(data); }
+      cancel();
+    } catch (e) { console.error(e); alert("Chyba: " + e.message); }
     setSaving(false);
   };
-  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Akce</h1>{user.role === "admin" && <Btn v="secondary" onClick={() => setShow(!show)}>{show ? "Zrušit" : "+ Přidat"}</Btn>}</div>{show && <Crd style={{ borderColor: C.acc }}><Inp label="Název" value={f.t} onChange={v => setF(p => ({ ...p, t: v }))} required /><Inp label="Datum" type="date" value={f.d} onChange={v => setF(p => ({ ...p, d: v }))} required /><Inp label="Místo" value={f.l} onChange={v => setF(p => ({ ...p, l: v }))} required /><Inp label="Popis" type="textarea" value={f.desc} onChange={v => setF(p => ({ ...p, desc: v }))} /><Inp label="Lineup (čárkou)" value={f.lin} onChange={v => setF(p => ({ ...p, lin: v }))} /><Btn onClick={add} disabled={saving}>{saving ? "Ukládám..." : "Uložit"}</Btn></Crd>}{events.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><h3 style={{ margin: "0 0 4px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc, marginBottom: 4 }}>{ev.date} — {ev.location}</div><p style={{ fontSize: 12, color: C.txM, margin: 0 }}>{(ev.description || "").slice(0, 80)}...</p></Crd>)}</div>;
+  const del = async (ev) => {
+    if (!confirm(`Smazat akci "${ev.title}"?`)) return;
+    try { await DB.deleteEvent(ev.id); } catch (e) { alert("Chyba: " + e.message); }
+  };
+  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Akce</h1>{isA && <Btn v="secondary" onClick={() => show ? cancel() : setShow(true)}>{show ? "Zrušit" : "+ Přidat"}</Btn>}</div>{show && <Crd style={{ borderColor: C.acc }}><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>{editId ? "Upravit akci" : "Nová akce"}</div><Inp label="Název" value={f.t} onChange={v => setF(p => ({ ...p, t: v }))} required /><Inp label="Datum" type="date" value={f.d} onChange={v => setF(p => ({ ...p, d: v }))} required /><Inp label="Místo" value={f.l} onChange={v => setF(p => ({ ...p, l: v }))} required /><Inp label="Popis" type="textarea" value={f.desc} onChange={v => setF(p => ({ ...p, desc: v }))} /><Inp label="Lineup (čárkou)" value={f.lin} onChange={v => setF(p => ({ ...p, lin: v }))} /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>Stav</label><div style={{ display: "flex", gap: 8 }}>{[{ v: "upcoming", l: "Nadcházející" }, { v: "past", l: "Proběhlá" }].map(s => <button key={s.v} onClick={() => setF(p => ({ ...p, st: s.v }))} style={{ padding: "7px 18px", borderRadius: 4, fontSize: 12, fontFamily: "inherit", cursor: "pointer", background: f.st === s.v ? C.acc : "transparent", color: f.st === s.v ? "#0a0f0a" : C.txM, border: `1px solid ${f.st === s.v ? "transparent" : C.brd}` }}>{s.l}</button>)}</div></div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : editId ? "Uložit změny" : "Vytvořit"}</Btn></Crd>}{events.map(ev => <Crd key={ev.id} hov onClick={() => onNav("events:" + ev.id)}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h3 style={{ margin: "0 0 4px", fontSize: 15, color: C.tx, fontFamily: "inherit" }}>{ev.title}</h3><div style={{ fontSize: 12, color: C.acc, marginBottom: 4 }}>{ev.date} — {ev.location}</div><p style={{ fontSize: 12, color: C.txM, margin: 0 }}>{(ev.description || "").slice(0, 80)}...</p></div>{isA && <div style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={e => { e.stopPropagation(); startEdit(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.acc, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✎</button><button onClick={e => { e.stopPropagation(); del(ev); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>✕</button></div>}</div></Crd>)}</div>;
 }
 
 /* ═══ Gallery ════════════════════════════════════════════════════ */
@@ -330,7 +377,7 @@ function GalList({ onNav, user, events }) {
     try {
       const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
       const { db: fireDb } = await import('./lib/firebase.js');
-      await addDoc(collection(fireDb, 'gallery'), { eventId: eventLink || null, title: folderName, photos: upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: null })), uploadedBy: user.uid, createdAt: serverTimestamp() });
+      await addDoc(collection(fireDb, 'gallery'), { eventId: eventLink || null, title: folderName, photos: upPhotos.map(p => ({ id: p.id, caption: p.caption, ph: p.ph, url: p.url || null })), uploadedBy: user.uid, createdAt: serverTimestamp() });
       setShowAdd(false); setFolderName(""); setEventLink(""); setUpPhotos([]);
     } catch (e) { console.error(e); alert("Chyba: " + e.message); }
     setSaving(false);
@@ -338,11 +385,12 @@ function GalList({ onNav, user, events }) {
   return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Galerie</h1>{isA && <Btn v="secondary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? "Zrušit" : "+ Nová složka"}</Btn>}</div>
     {showAdd && <Crd style={{ borderColor: C.acc }}><Inp label="Název složky" value={folderName} onChange={setFolderName} required /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>K akci (volitelné)</label><select value={eventLink} onChange={e => setEventLink(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit" }}><option value="">— bez přiřazení —</option>{events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}</select></div><DropZone onFiles={handleFiles} label="Přetáhni fotky" accept="image/*" />{upPhotos.length > 0 && <><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>{upPhotos.map(p => <PhotoImg key={p.id} photo={p} size={48} />)}</div><Btn onClick={save} disabled={saving}>{saving ? "Ukládám..." : `Vytvořit (${upPhotos.length} fotek)`}</Btn></>}</Crd>}
-    {gals.map(g => { const ev = g.eventId ? events.find(e => e.id === g.eventId) : null; return <Crd key={g.id} hov onClick={() => onNav("gallery:" + g.id)}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>{(g.photos || []).slice(0, 5).map(p => <PhotoImg key={p.id} photo={p} size={90} />)}</div><h3 style={{ margin: "10px 0 3px", fontSize: 14, color: C.tx, fontFamily: "inherit" }}>{g.title}</h3><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 11, color: C.txM }}>{(g.photos || []).length} fotek</span>{ev && <EvLink event={ev} onNav={onNav} />}</div></Crd>; })}
+    {gals.map(g => { const ev = g.eventId ? events.find(e => e.id === g.eventId) : null; return <Crd key={g.id} hov onClick={() => onNav("gallery:" + g.id)}><div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6 }}>{(g.photos || []).slice(0, 5).map(p => <PhotoImg key={p.id} photo={p} size={90} />)}</div><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}><div><h3 style={{ margin: "0 0 3px", fontSize: 14, color: C.tx, fontFamily: "inherit" }}>{g.title}</h3><div style={{ display: "flex", gap: 12 }}><span style={{ fontSize: 11, color: C.txM }}>{(g.photos || []).length} fotek</span>{ev && <EvLink event={ev} onNav={onNav} />}</div></div>{isA && <button onClick={e => { e.stopPropagation(); if (confirm(`Smazat galerii "${g.title}"?`)) DB.deleteGalleryDoc(g.id).catch(err => alert(err.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>}</div></Crd>; })}
   </div>;
 }
-function GalDetail({ gid, onNav, backTo }) {
+function GalDetail({ gid, onNav, backTo, user }) {
   const [g, setG] = useState(null); const [lbIdx, setLbIdx] = useState(null);
+  const isA = user?.role === "admin";
   useEffect(() => DB.onGallery(gs => setG(gs.find(x => x.id === gid) || null)), [gid]);
   if (!g) return <Loading />;
   const bk = backTo?.startsWith("events:") ? backTo : "gallery";
@@ -350,7 +398,7 @@ function GalDetail({ gid, onNav, backTo }) {
     {lbIdx !== null && <Lightbox photos={g.photos || []} currentIndex={lbIdx} onClose={() => setLbIdx(null)} onNav={setLbIdx} />}
     <button onClick={() => onNav(bk)} style={{ background: "none", border: "none", color: C.accD, fontSize: 12, cursor: "pointer", fontFamily: "inherit", marginBottom: 16, padding: 0 }}>← Zpět</button>
     <h1 style={{ fontSize: 20, color: C.acc, margin: "0 0 20px", fontFamily: "inherit" }}>{g.title}</h1>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>{(g.photos || []).map((p, i) => <div key={p.id}><PhotoImg photo={p} size={160} onClick={() => setLbIdx(i)} /><div style={{ fontSize: 11, color: C.txM, marginTop: 4, textAlign: "center" }}>{p.caption}</div></div>)}</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>{(g.photos || []).map((p, i) => <div key={p.id} style={{ position: "relative" }}><PhotoImg photo={p} size={160} onClick={() => setLbIdx(i)} />{isA && <button onClick={e => { e.stopPropagation(); if (confirm("Smazat fotku?")) DB.removePhotoFromGallery(g.id, p.id).catch(err => alert(err.message)); }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,.7)", border: "none", color: C.red, cursor: "pointer", fontSize: 12, width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}<div style={{ fontSize: 11, color: C.txM, marginTop: 4, textAlign: "center" }}>{p.caption}</div></div>)}</div>
   </div>;
 }
 
@@ -370,8 +418,8 @@ function MediaPage({ user, events, onNav }) {
     {tab === "audio" && <><DropZone onFiles={handleAudioFiles} label="MP3, WAV, FLAC..." accept="audio/*" /><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", margin: "8px 0 10px" }}>Nebo SoundCloud</div><EmbedInput onAdd={({ url }) => addScTrack(url)} placeholder="https://soundcloud.com/..." /></>}
     {tab === "video" && <EmbedInput onAdd={addVid} placeholder="https://youtube.com/watch?v=..." />}
     </Crd>}
-    {tab === "audio" && auds.map(a => { const ev = a.eventId ? events.find(e => e.id === a.eventId) : null; return <Crd key={a.id}><AudioPlayer track={a} />{ev && <div style={{ marginTop: 6 }}><EvLink event={ev} onNav={onNav} /></div>}</Crd>; })}
-    {tab === "video" && vids.map(v => { const p = parseUrl(v.embedUrl); const ev = v.eventId ? events.find(e => e.id === v.eventId) : null; return <Crd key={v.id}>{p?.type === "youtube" ? <YtEmbed videoId={p.id} title={v.title} /> : <div>{v.title}</div>}{ev && <div style={{ marginTop: 6 }}><EvLink event={ev} onNav={onNav} /></div>}</Crd>; })}
+    {tab === "audio" && auds.map(a => { const ev = a.eventId ? events.find(e => e.id === a.eventId) : null; return <Crd key={a.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}><AudioPlayer track={a} />{ev && <div style={{ marginTop: 6 }}><EvLink event={ev} onNav={onNav} /></div>}</div>{isA && <button onClick={() => { if (confirm("Smazat audio?")) DB.deleteAudioDoc(a.id).catch(e => alert(e.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: 8 }}>✕</button>}</div></Crd>; })}
+    {tab === "video" && vids.map(v => { const p = parseUrl(v.embedUrl); const ev = v.eventId ? events.find(e => e.id === v.eventId) : null; return <Crd key={v.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div style={{ flex: 1 }}>{p?.type === "youtube" ? <YtEmbed videoId={p.id} title={v.title} /> : <div>{v.title}</div>}{ev && <div style={{ marginTop: 6 }}><EvLink event={ev} onNav={onNav} /></div>}</div>{isA && <button onClick={() => { if (confirm("Smazat video?")) DB.deleteVideoDoc(v.id).catch(e => alert(e.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, padding: "4px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: 8 }}>✕</button>}</div></Crd>; })}
   </div>;
 }
 
@@ -456,7 +504,7 @@ export default function App() {
     {base === "events" && !param && user && <Events user={user} events={events} onNav={nav} />}
     {base === "events" && param && user && <EvDetail eid={param} user={user} events={events} onNav={nav} />}
     {base === "gallery" && !param && user && <GalList onNav={nav} user={user} events={events} />}
-    {base === "gallery" && param && user && <GalDetail gid={param} onNav={nav} backTo={prev} />}
+    {base === "gallery" && param && user && <GalDetail gid={param} onNav={nav} backTo={prev} user={user} />}
     {base === "media" && user && <MediaPage user={user} events={events} onNav={nav} />}
     {base === "chat" && user && <ChatPage user={user} events={events} />}
     {base === "admin" && user?.role === "admin" && <Admin user={user} />}
