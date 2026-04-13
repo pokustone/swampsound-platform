@@ -173,12 +173,12 @@ function AudioPlayer({ track }) {
 }
 
 /* ═══ Chat (Firebase real-time) ══════════════════════════════════ */
-function MiniChat({ user, room, events = [], showLabels = false, allRooms = false, onRoomClick }) {
+function MiniChat({ user, room, events = [], showLabels = false, allRooms = false, onRoomClick, filterUser = null, onUserClick, searchQuery = "" }) {
   const [msgs, setMsgs] = useState([]); const [txt, setTxt] = useState(""); const btm = useRef(null);
   const roomLabel = id => { if (id === "general") return S.chatGeneralFull; return events.find(e => e.id === id)?.title || id; };
   const effectiveRoom = allRooms ? null : (room || "general");
   useEffect(() => { return allRooms ? DB.onAllMessages(setMsgs, 200) : DB.onMessages(effectiveRoom, setMsgs, 100); }, [effectiveRoom, allRooms]);
-  useEffect(() => { btm.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length]);
+  useEffect(() => { btm.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length, filterUser, searchQuery]);
   const send = async () => {
     if (!txt.trim()) return; const t = txt; setTxt("");
     const sendRoom = allRooms ? "general" : (room || "general");
@@ -194,17 +194,30 @@ function MiniChat({ user, room, events = [], showLabels = false, allRooms = fals
     if (!confirm(S.chatDeleteConfirm)) return;
     try { await DB.deleteMessage(m.id); } catch (e) { console.error("Delete msg:", e); alert("Nelze smazat: " + e.message); }
   };
-  return <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-    <div style={{ flex: 1, overflowY: "auto", padding: 12, background: C.srf, border: `1px solid ${C.brd}`, borderRadius: 6, marginBottom: 8 }}>
-      {msgs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.txM, fontSize: 12 }}>Zatím žádné zprávy.</div>}
-      {msgs.map(m => { const me = m.authorId === user.uid; return <div key={m.id} style={{ marginBottom: 10, position: "relative" }}>
+  const filtered = msgs.filter(m => {
+    if (filterUser && m.authorName !== filterUser) return false;
+    if (searchQuery && !m.text.toLowerCase().includes(searchQuery.toLowerCase()) && !m.authorName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
+  return <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    {filterUser && <div style={{ padding: "6px 10px", background: C.acc + "15", borderRadius: 4, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: C.acc }}>{S.chatFilterUser}: <b>{filterUser}</b></span>
+      <button onClick={() => onUserClick?.(null)} style={{ background: "none", border: "none", color: C.txM, cursor: "pointer", fontSize: 14, fontFamily: "inherit", padding: "0 4px" }}>×</button>
+    </div>}
+    <div style={{ flex: 1, overflowY: "auto", padding: 12, background: C.srf, border: `1px solid ${C.brd}`, borderRadius: 6, marginBottom: 8, minHeight: 0 }}>
+      {filtered.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.txM, fontSize: 12 }}>{filterUser || searchQuery ? S.chatNoMatch : S.chatEmpty}</div>}
+      {filtered.map(m => { const me = m.authorId === user.uid; return <div key={m.id} style={{ marginBottom: 10, position: "relative" }}>
         {showLabels && <button onClick={e => { e.stopPropagation(); onRoomClick?.(m.room); }} style={{ fontSize: 10, color: m.room === "general" ? C.grnL : C.acc, background: (m.room === "general" ? C.grnL : C.acc) + "15", padding: "1px 8px", borderRadius: 3, marginBottom: 3, display: "inline-block", border: "none", cursor: "pointer", fontFamily: "inherit" }}>{roomLabel(m.room)} →</button>}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}><span style={{ fontSize: 12, fontWeight: "bold", color: me ? C.acc : C.grnL }}>{m.authorName}</span><span style={{ fontSize: 10, color: C.txM }}>{fmtT(m.ts)}</span>{canDelete(m) && <button onClick={() => handleDelete(m)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px", fontFamily: "inherit", opacity: .6 }} title="Smazat">×</button>}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+          <button onClick={() => onUserClick?.(m.authorName === filterUser ? null : m.authorName)} style={{ fontSize: 12, fontWeight: "bold", color: me ? C.acc : C.grnL, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: onUserClick ? "underline" : "none", textDecorationStyle: "dotted" }}>{m.authorName}</button>
+          <span style={{ fontSize: 10, color: C.txM }}>{fmtT(m.ts)}</span>
+          {canDelete(m) && <button onClick={() => handleDelete(m)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px", fontFamily: "inherit", opacity: .6 }} title="Smazat">×</button>}
+        </div>
         <div style={{ fontSize: 13, color: C.tx, lineHeight: 1.5, marginTop: 1 }}>{m.text}</div>
       </div>; })}
       <div ref={btm} />
     </div>
-    <div style={{ display: "flex", gap: 8 }}><input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} placeholder={allRooms ? S.chatPlaceholderAll : S.chatPlaceholder} style={{ flex: 1, padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit", outline: "none" }} /><Btn onClick={send}>Odeslat</Btn></div>
+    {!filterUser && <div style={{ display: "flex", gap: 8, flexShrink: 0 }}><input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }} placeholder={allRooms ? S.chatPlaceholderAll : S.chatPlaceholder} style={{ flex: 1, padding: "10px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 13, fontFamily: "inherit", outline: "none" }} /><Btn onClick={send}>{S.send}</Btn></div>}
   </div>;
 }
 
@@ -293,24 +306,29 @@ function Register({ onNav }) {
 
 /* ═══ Dashboard ══════════════════════════════════════════════════ */
 function NotifPrefs({ user }) {
-  const defaults = { events: false, gallery: false, audio: false, video: false, channel: "email", telegram: "" };
-  const [p, setP] = useState({ ...defaults, ...(user.notifications || {}) });
+  const defaults = { events: false, gallery: false, audio: false, video: false, channels: { email: true, sms: false, telegram: false }, telegram: "" };
+  const merged = { ...defaults, ...(user.notifications || {}) };
+  // Migration: if old single `channel` field exists, convert to `channels` object
+  if (merged.channel && !merged.channels) { merged.channels = { email: merged.channel === "email", sms: merged.channel === "sms", telegram: merged.channel === "telegram" }; delete merged.channel; }
+  if (typeof merged.channels !== "object") merged.channels = { email: true, sms: false, telegram: false };
+  const [p, setP] = useState(merged);
   const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
   const toggle = k => setP(prev => ({ ...prev, [k]: !prev[k] }));
+  const toggleCh = k => setP(prev => ({ ...prev, channels: { ...prev.channels, [k]: !prev.channels[k] } }));
   const save = async () => {
     setSaving(true);
-    try { await DB.updateUserPrefs(user.uid, p); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { alert("Chyba: " + e.message); }
+    try { const toSave = { ...p }; delete toSave.channel; await DB.updateUserPrefs(user.uid, toSave); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { alert("Chyba: " + e.message); }
     setSaving(false);
   };
   return <Crd>
-    <div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>Notifikace</div>
-    <div style={{ fontSize: 11, color: C.txM, marginBottom: 12 }}>Co chceš sledovat:</div>
+    <div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>{S.notifTitle}</div>
+    <div style={{ fontSize: 11, color: C.txM, marginBottom: 12 }}>{S.notifWhat}</div>
     {[{ k: "events", l: S.notifEvents }, { k: "gallery", l: S.notifGallery }, { k: "audio", l: S.notifAudio }, { k: "video", l: S.notifVideo }].map(i => <label key={i.k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: C.tx, cursor: "pointer" }}><input type="checkbox" checked={p[i.k]} onChange={() => toggle(i.k)} style={{ accentColor: C.acc }} />{i.l}</label>)}
-    <div style={{ fontSize: 11, color: C.txM, margin: "12px 0 8px" }}>Kanál:</div>
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>{[{ v: "email", l: S.notifEmail }, { v: "sms", l: S.notifSms }, { v: "telegram", l: S.notifTelegram }].map(c => <button key={c.v} onClick={() => setP(prev => ({ ...prev, channel: c.v }))} style={{ padding: "5px 14px", borderRadius: 4, fontSize: 11, fontFamily: "inherit", cursor: "pointer", background: p.channel === c.v ? C.acc : "transparent", color: p.channel === c.v ? "#0a0f0a" : C.txM, border: `1px solid ${p.channel === c.v ? "transparent" : C.brd}` }}>{c.l}</button>)}</div>
-    {p.channel === "telegram" && <Inp label={S.notifTgUser} value={p.telegram} onChange={v => setP(prev => ({ ...prev, telegram: v }))} placeholder="@username" />}
-    <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Btn v="small" onClick={save} disabled={saving}>{saving ? S.saving : S.save}</Btn>{saved && <span style={{ fontSize: 11, color: C.grnL }}>✓ Uloženo</span>}</div>
-    <div style={{ fontSize: 10, color: C.txM, marginTop: 8 }}>Odesílání notifikací bude aktivní po nasazení Cloud Functions.</div>
+    <div style={{ fontSize: 11, color: C.txM, margin: "12px 0 8px" }}>{S.notifChannels}</div>
+    {[{ k: "email", l: S.notifEmail }, { k: "sms", l: S.notifSms }, { k: "telegram", l: S.notifTelegram }].map(c => <label key={c.k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: C.tx, cursor: "pointer" }}><input type="checkbox" checked={!!p.channels?.[c.k]} onChange={() => toggleCh(c.k)} style={{ accentColor: C.acc }} />{c.l}</label>)}
+    {p.channels?.telegram && <Inp label={S.notifTgUser} value={p.telegram} onChange={v => setP(prev => ({ ...prev, telegram: v }))} placeholder="@username" />}
+    <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Btn v="small" onClick={save} disabled={saving}>{saving ? S.saving : S.save}</Btn>{saved && <span style={{ fontSize: 11, color: C.grnL }}>{S.notifSaved}</span>}</div>
+    <div style={{ fontSize: 10, color: C.txM, marginTop: 8 }}>{S.notifNote}</div>
   </Crd>;
 }
 
@@ -478,7 +496,7 @@ function Events({ user, events, onNav }) {
     return true;
   });
   return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><h1 style={{ fontSize: 20, color: C.acc, margin: 0, fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Akce</h1>{isA && <Btn v="secondary" onClick={() => show ? cancel() : setShow(true)}>{show ? S.cancel : S.add}</Btn>}</div>
-    <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}><input value={search} onChange={e => setSearch(e.target.value)} placeholder={S.evSearch} style={{ flex: 1, minWidth: 140, padding: "8px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 12, fontFamily: "inherit", outline: "none" }} /><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit" }} /><span style={{ color: C.txM, fontSize: 12, alignSelf: "center" }}>—</span><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit" }} />{(search || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.txM, padding: "6px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Reset</button>}</div>
+    <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "flex-end" }}><input value={search} onChange={e => setSearch(e.target.value)} placeholder={S.evSearch} style={{ flex: 1, minWidth: 140, padding: "8px 12px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 12, fontFamily: "inherit", outline: "none" }} /><div style={{ display: "flex", gap: 6, alignItems: "center" }}><div><div style={{ fontSize: 9, letterSpacing: 1, color: C.txM, textTransform: "uppercase", marginBottom: 3 }}>{S.evDateFrom}</div><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: dateFrom ? C.tx : C.txM, fontSize: 11, fontFamily: "inherit" }} /></div><span style={{ color: C.txM, fontSize: 12, paddingTop: 14 }}>—</span><div><div style={{ fontSize: 9, letterSpacing: 1, color: C.txM, textTransform: "uppercase", marginBottom: 3 }}>{S.evDateTo}</div><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ padding: "8px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: dateTo ? C.tx : C.txM, fontSize: 11, fontFamily: "inherit" }} /></div></div>{(search || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.txM, padding: "6px 10px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>Reset</button>}</div>
     {show && <Crd style={{ borderColor: C.acc }}><div style={{ fontSize: 10, letterSpacing: 2, color: C.acc, textTransform: "uppercase", marginBottom: 12 }}>{editId ? S.evEdit : S.evNew}</div><Inp label={S.evName} value={f.t} onChange={v => setF(p => ({ ...p, t: v }))} required /><Inp label={S.evDate} type="date" value={f.d} onChange={v => setF(p => ({ ...p, d: v }))} required /><Inp label={S.evLocation} value={f.l} onChange={v => setF(p => ({ ...p, l: v }))} required /><Inp label={S.evDesc} type="textarea" value={f.desc} onChange={v => setF(p => ({ ...p, desc: v }))} />
     <LineupEditor lineup={f.lin} onChange={v => setF(p => ({ ...p, lin: v }))} />
     <div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5, fontFamily: "inherit" }}>Leták</label>{f.flyer ? <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}><img src={f.flyer} style={{ width: 100, borderRadius: 4, border: `1px solid ${C.brd}` }} /><button onClick={() => setF(p => ({ ...p, flyer: null }))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14 }}>×</button></div> : <DropZone onFiles={handleFlyer} label={S.evFlyerDrop} accept="image/*" />}</div>
@@ -607,8 +625,32 @@ function MediaPage({ user, events, onNav }) {
 /* ═══ Chat Page ══════════════════════════════════════════════════ */
 function ChatPage({ user, events }) {
   const [mode, setMode] = useState("all");
+  const [search, setSearch] = useState("");
+  const [filterUser, setFilterUser] = useState(null);
   const rooms = [{ id: "all", l: S.chatAll }, { id: "general", l: S.chatGeneral }, ...events.map(e => ({ id: e.id, l: e.title.length > 18 ? e.title.slice(0, 18) + "…" : e.title }))];
-  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px", display: "flex", flexDirection: "column", height: "calc(100vh - 100px)" }}><h1 style={{ fontSize: 20, color: C.acc, margin: "0 0 12px", fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase" }}>Chat</h1><div style={{ display: "flex", gap: 4, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>{rooms.map(r => <button key={r.id} onClick={() => setMode(r.id)} style={{ background: mode === r.id ? C.acc : "transparent", color: mode === r.id ? "#0a0f0a" : C.txM, border: `1px solid ${mode === r.id ? C.acc : C.brd}`, padding: "4px 12px", borderRadius: 4, fontSize: 10, fontFamily: "inherit", letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", fontWeight: mode === r.id ? "bold" : "normal" }}>{r.l}</button>)}</div><div style={{ flex: 1 }}><MiniChat user={user} room={mode === "all" ? "general" : mode} events={events} showLabels={mode === "all"} allRooms={mode === "all"} onRoomClick={id => setMode(id)} /></div></div>;
+  const handleUserClick = (name) => { setFilterUser(name); };
+  const handleRoomClick = (id) => { setFilterUser(null); setSearch(""); setMode(id); };
+  return <div style={{ maxWidth: 620, margin: "0 auto", padding: "28px 20px", display: "flex", flexDirection: "column", height: "calc(100vh - 80px)", minHeight: 0 }}>
+    <h1 style={{ fontSize: 20, color: C.acc, margin: "0 0 10px", fontFamily: "inherit", letterSpacing: 2, textTransform: "uppercase", flexShrink: 0 }}>Chat</h1>
+    <div style={{ display: "flex", gap: 8, marginBottom: 10, flexShrink: 0 }}>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder={S.chatSearch} style={{ flex: 1, padding: "7px 10px", background: C.grnD, border: `1px solid ${C.brd}`, borderRadius: 4, color: C.tx, fontSize: 11, fontFamily: "inherit", outline: "none" }} />
+      {search && <button onClick={() => setSearch("")} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.txM, padding: "4px 8px", borderRadius: 4, fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>×</button>}
+    </div>
+    <div style={{ display: "flex", gap: 4, marginBottom: 10, overflowX: "auto", paddingBottom: 4, flexShrink: 0 }}>{rooms.map(r => <button key={r.id} onClick={() => handleRoomClick(r.id)} style={{ background: mode === r.id ? C.acc : "transparent", color: mode === r.id ? "#0a0f0a" : C.txM, border: `1px solid ${mode === r.id ? C.acc : C.brd}`, padding: "4px 12px", borderRadius: 4, fontSize: 10, fontFamily: "inherit", letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", fontWeight: mode === r.id ? "bold" : "normal" }}>{r.l}</button>)}</div>
+    <div style={{ flex: 1, minHeight: 0 }}><MiniChat user={user} room={mode === "all" ? "general" : mode} events={events} showLabels={mode === "all"} allRooms={mode === "all"} onRoomClick={handleRoomClick} filterUser={filterUser} onUserClick={handleUserClick} searchQuery={search} /></div>
+  </div>;
+}
+
+/* ═══ Batch Section (expandable with full QR) ═══════════════════ */
+function BatchSection({ name, invites, used, qrSz, gc }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showFullQr, setShowFullQr] = useState(false);
+  return <Sec title={<button onClick={() => setExpanded(!expanded)} style={{ background: "none", border: "none", color: C.accD, fontSize: 10, letterSpacing: 3, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", padding: 0, display: "flex", alignItems: "center", gap: 6 }}><span>{expanded ? "▾" : "▸"}</span><span>{name} ({used}/{invites.length})</span></button>} right={expanded ? <Btn v="small" onClick={() => setShowFullQr(!showFullQr)}>{showFullQr ? S.hide : S.adminQrCodes}</Btn> : null}>
+    {expanded && <>
+      {showFullQr && <div style={{ display: "grid", gridTemplateColumns: `repeat(${gc}, 1fr)`, gap: 10, marginBottom: 12, padding: 12, background: "#fff", borderRadius: 4 }}>{invites.map(inv => <div key={inv.token || inv.id} style={{ textAlign: "center" }}><QrSvg data={inv.token} size={qrSz} /><div style={{ fontSize: 7, color: "#333", wordBreak: "break-all", lineHeight: 1.2, marginTop: 2, fontFamily: "monospace" }}>{inv.token}</div><div style={{ fontSize: 7, color: inv.status === "unused" ? "#2a5a2a" : "#a83232", marginTop: 1 }}>{inv.status}</div></div>)}</div>}
+      {invites.map(inv => <div key={inv.token || inv.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.brd}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><QrSvg data={inv.token} size={28} /><span style={{ color: C.tx }}>{inv.token}</span></div><Badge color={inv.status === "unused" ? C.grnL : C.red}>{inv.status}</Badge></div>)}
+    </>}
+  </Sec>;
 }
 
 /* ═══ Admin ═══════════════════════════════════════════════════════ */
@@ -648,7 +690,7 @@ function Admin({ user }) {
       {batch && <Crd style={{ borderColor: C.grnL }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><div style={{ fontSize: 10, letterSpacing: 2, color: C.grnL, textTransform: "uppercase" }}>Vygenerováno {batch.length}</div><Btn v="small" onClick={() => setShowQr(!showQr)}>{showQr ? S.hide : S.adminQrCodes}</Btn></div>
         {showQr && <div style={{ display: "grid", gridTemplateColumns: `repeat(${gc}, 1fr)`, gap: 10, marginBottom: 12, padding: 12, background: "#fff", borderRadius: 4 }}>{batch.map(inv => <div key={inv.token} style={{ textAlign: "center" }}><QrSvg data={inv.token} size={qrSz} /><div style={{ fontSize: 7, color: "#333", wordBreak: "break-all", lineHeight: 1.2, marginTop: 2, fontFamily: "monospace" }}>{inv.token}</div></div>)}</div>}
       </Crd>}
-      {batches.map(bn => { const bi = invs.filter(i => i.batchName === bn); const used = bi.filter(i => i.status === "used").length; return <Sec key={bn} title={`${bn} (${used}/${bi.length})`}>{bi.map(inv => <div key={inv.token || inv.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.brd}`, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><QrSvg data={inv.token} size={28} /><span style={{ color: C.tx }}>{inv.token}</span></div><Badge color={inv.status === "unused" ? C.grnL : C.red}>{inv.status}</Badge></div>)}</Sec>; })}
+      {batches.map(bn => { const bi = invs.filter(i => i.batchName === bn); const used = bi.filter(i => i.status === "used").length; return <BatchSection key={bn} name={bn} invites={bi} used={used} qrSz={qrSz} gc={gc} />; })}
     </>}
 
     {tab === "email" && <><Crd style={{ borderColor: C.accD }}><Inp label={S.adminEmailLabel} type="email" value={mEm} onChange={v => { setMEm(v); setMSent(null); }} placeholder="kamarad@email.cz" required /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5 }}>Role</label><div style={{ display: "flex", gap: 8 }}>{[{ v: "member", l: S.adminRoleMember }, { v: "admin", l: S.adminTitle }].map(r => <button key={r.v} onClick={() => setMRole(r.v)} style={{ padding: "7px 18px", borderRadius: 4, fontSize: 12, fontFamily: "inherit", cursor: "pointer", background: mRole === r.v ? C.acc : "transparent", color: mRole === r.v ? "#0a0f0a" : C.txM, border: `1px solid ${mRole === r.v ? "transparent" : C.brd}` }}>{r.l}</button>)}</div></div><Btn onClick={sendEmail}>Odeslat</Btn>{mSent?.ok && <div style={{ marginTop: 12, fontSize: 12, color: C.grnL }}>Odesláno → {mSent.email} · {mSent.token}</div>}{mSent?.err && <div style={{ marginTop: 12, fontSize: 12, color: C.red }}>{mSent.err}</div>}</Crd><Sec title={S.adminEmailInvites(eInvs.length)}>{eInvs.map(inv => <Crd key={inv.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={{ fontSize: 13, color: C.tx }}>{inv.email}<div style={{ fontSize: 11, color: C.txM }}>{inv.role} · {fmtT(tsToMs(inv.createdAt))}</div></div><Badge color={inv.status === "pending" ? C.acc : C.grnL}>{inv.status === "pending" ? S.adminPending : S.yes}</Badge></div></Crd>)}</Sec></>}
