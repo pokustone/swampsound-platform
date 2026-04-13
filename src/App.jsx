@@ -262,12 +262,27 @@ function Register({ onNav }) {
     } catch (e) { setTokErr("Chyba: " + (e.message || "")); }
   };
   const submit = async () => {
-    const e = {}; if (!f.fn.trim()) e.fn = S.regErrFill; if (!f.em.includes("@")) e.em = S.regErrEmailBad; if (f.ph.length < 9) e.ph = S.regErrFill; const pe = valPw(f.pw); if (pe) e.pw = pe; if (f.pw !== f.pw2) e.pw2 = S.regErrPwMatch;
+    const e = {}; if (!f.fn.trim()) e.fn = S.regErrFill;
+    // Email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(f.em)) e.em = S.regErrEmailFormat;
+    // Phone validation: must start with +, strip spaces, check digits
+    const rawPhone = f.ph.replace(/\s+/g, "");
+    if (!/^\+\d+$/.test(rawPhone)) { e.ph = S.regErrPhoneFormat; }
+    else {
+      // Check digit count (without +prefix): expect 10-15 digits total after +
+      const digits = rawPhone.slice(1);
+      if (digits.length < 10 || digits.length > 15) e.ph = S.regErrPhoneDigits;
+    }
+    const pe = valPw(f.pw); if (pe) e.pw = pe; if (f.pw !== f.pw2) e.pw2 = S.regErrPwMatch;
     if (Object.keys(e).length) { setErrs(e); return; }
     setSub(true);
-    try { await registerWithInvite({ token: vTok.token, fullName: f.fn, email: f.em, phone: f.ph, password: f.pw, nickname: f.nick || null }); }
+    try {
+      await registerWithInvite({ token: vTok.token, fullName: f.fn, email: f.em, phone: rawPhone, password: f.pw, nickname: f.nick || null });
+    }
     catch (err) {
-      if (err.code === "auth/email-already-in-use") setErrs({ em: S.regErrEmail });
+      if (err.code === "auth/email-already-in-use") setErrs({ em: S.regErrEmailExists });
+      else if (err.code === "phone-already-in-use") setErrs({ ph: S.regErrPhoneExists });
       else setErrs({ fn: err.message || "Chyba registrace" });
       setSub(false);
     }
@@ -638,7 +653,7 @@ function Admin({ user }) {
 
     {tab === "email" && <><Crd style={{ borderColor: C.accD }}><Inp label={S.adminEmailLabel} type="email" value={mEm} onChange={v => { setMEm(v); setMSent(null); }} placeholder="kamarad@email.cz" required /><div style={{ marginBottom: 14 }}><label style={{ display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.acc, marginBottom: 5 }}>Role</label><div style={{ display: "flex", gap: 8 }}>{[{ v: "member", l: S.adminRoleMember }, { v: "admin", l: S.adminTitle }].map(r => <button key={r.v} onClick={() => setMRole(r.v)} style={{ padding: "7px 18px", borderRadius: 4, fontSize: 12, fontFamily: "inherit", cursor: "pointer", background: mRole === r.v ? C.acc : "transparent", color: mRole === r.v ? "#0a0f0a" : C.txM, border: `1px solid ${mRole === r.v ? "transparent" : C.brd}` }}>{r.l}</button>)}</div></div><Btn onClick={sendEmail}>Odeslat</Btn>{mSent?.ok && <div style={{ marginTop: 12, fontSize: 12, color: C.grnL }}>Odesláno → {mSent.email} · {mSent.token}</div>}{mSent?.err && <div style={{ marginTop: 12, fontSize: 12, color: C.red }}>{mSent.err}</div>}</Crd><Sec title={S.adminEmailInvites(eInvs.length)}>{eInvs.map(inv => <Crd key={inv.id}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={{ fontSize: 13, color: C.tx }}>{inv.email}<div style={{ fontSize: 11, color: C.txM }}>{inv.role} · {fmtT(tsToMs(inv.createdAt))}</div></div><Badge color={inv.status === "pending" ? C.acc : C.grnL}>{inv.status === "pending" ? S.adminPending : S.yes}</Badge></div></Crd>)}</Sec></>}
 
-    {tab === "users" && <Sec title={S.adminUsersCount(users.length)}>{users.map(u => <Crd key={u.uid}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 14, color: C.tx, fontWeight: "bold" }}>{u.fullName}{u.nickname && <span style={{ fontWeight: "normal", color: C.txM }}> ({u.nickname})</span>}</div><div style={{ fontSize: 11, color: C.txM, marginTop: 3 }}>{u.email} · {u.phone}</div><div style={{ fontSize: 11, color: C.txM, marginTop: 4 }}>Reg: {fmtDate(tsToMs(u.createdAt))} · Login: {fmtT(tsToMs(u.lastLogin))}</div>{u.batchName && <div style={{ fontSize: 10, color: C.accD, marginTop: 2 }}>Batch: {u.batchName}</div>}</div><Badge color={u.role === "admin" ? C.acc : C.grnL}>{u.role}</Badge></div></Crd>)}</Sec>}
+    {tab === "users" && <Sec title={S.adminUsersCount(users.length)}>{users.map(u => <Crd key={u.uid}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontSize: 14, color: C.tx, fontWeight: "bold" }}>{u.fullName}{u.nickname && <span style={{ fontWeight: "normal", color: C.txM }}> ({u.nickname})</span>}</div><div style={{ fontSize: 11, color: C.txM, marginTop: 3 }}>{u.email} · {u.phone}</div><div style={{ fontSize: 11, color: C.txM, marginTop: 4 }}>Reg: {fmtDate(tsToMs(u.createdAt))} · Login: {fmtT(tsToMs(u.lastLogin))}</div>{u.batchName && <div style={{ fontSize: 10, color: C.accD, marginTop: 2 }}>Batch: {u.batchName}</div>}</div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Badge color={u.role === "admin" ? C.acc : C.grnL}>{u.role}</Badge>{u.role !== "admin" && <button onClick={() => { if (u.uid === user.uid) { alert(S.adminCannotDeleteSelf); return; } if (!confirm(S.adminDeleteUserConfirm(u.fullName))) return; DB.deleteUser(u.uid).catch(e => alert("Chyba: " + e.message)); }} style={{ background: "none", border: `1px solid ${C.brd}`, color: C.red, width: 26, height: 26, borderRadius: "50%", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }} title={S.adminDeleteUser}>×</button>}</div></div></Crd>)}</Sec>}
   </div>;
 }
 
