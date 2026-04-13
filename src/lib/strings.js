@@ -4,9 +4,9 @@
 
 const cs = {
   // ─── Obecné ─────────────────────────────────────
-  appName: "SwampSound",
-  appSub: "System",
-  est: "Est. 2004",
+  appName: "Platform",
+  appSub: "Underground",
+  est: "Est. 2026",
   loading: "Načítání...",
   save: "Uložit",
   saving: "Ukládám...",
@@ -33,7 +33,7 @@ const cs = {
   navLogout: "Odhlásit",
 
   // ─── Landing ────────────────────────────────────
-  landingText: "Přes 20 let basů, dubu a přátelství. Taneční akce po celé Evropě. Uzavřená komunita pro ty, kteří vědí.",
+  landingText: "Uzavřená komunita pro ty, kteří vědí.",
   landingLogin: "Přihlásit se",
   landingInvite: "Mám pozvánku",
 
@@ -118,7 +118,7 @@ const cs = {
   // ─── Lineup ─────────────────────────────────────
   lineup: "Lineup",
   lineupName: "Jméno / alias",
-  lineupAddArtist: "+ Přidat artista",
+  lineupAddArtist: "+ Přidat umělce",
   lineupAddLink: "Přidat odkaz",
 
   // ─── Galerie ────────────────────────────────────
