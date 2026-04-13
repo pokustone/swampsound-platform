@@ -214,6 +214,23 @@ body {
   }
 }
 
+/* ── Date input mobile fix ────────────────────────── */
+input[type="date"] {
+  min-width: 0;
+}
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  color: var(--c-tx-m);
+}
+input[type="date"]:valid::-webkit-datetime-edit-text,
+input[type="date"]:valid::-webkit-datetime-edit-month-field,
+input[type="date"]:valid::-webkit-datetime-edit-day-field,
+input[type="date"]:valid::-webkit-datetime-edit-year-field {
+  color: var(--c-tx);
+}
+
 /* ── Utility classes ───────────────────────────────── */
 .sss-page {
   max-width: var(--max-w);
