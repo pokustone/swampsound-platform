@@ -87,6 +87,22 @@ export async function updateUserPrefs(uid, prefs) {
   return updateDoc(doc(db, 'users', uid), { notifications: prefs });
 }
 
+export async function deleteUser(uid) {
+  return deleteDoc(doc(db, 'users', uid));
+}
+
+export async function checkPhoneExists(phone) {
+  const q = query(collection(db, 'users'), where('phone', '==', phone));
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+export async function checkEmailExists(email) {
+  const q = query(collection(db, 'users'), where('email', '==', email));
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
 export function onUsers(callback) {
   return onSnapshot(
     query(collection(db, 'users'), orderBy('createdAt', 'desc')),

@@ -4,9 +4,22 @@ import {
   signOut,
   sendPasswordResetEmail,
   onAuthStateChanged,
+  deleteUser as deleteAuthUser,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, updateDoc, serverTimestamp, collection, query, where } from 'firebase/firestore';
 import { auth, db } from './firebase.js';
+
+// ─── Kontrola unikátnosti telefonu/emailu ──────────────────────
+async function checkPhoneUnique(phone) {
+  const q = query(collection(db, 'users'), where('phone', '==', phone));
+  const snap = await getDocs(q);
+  return snap.empty;
+}
+async function checkEmailUnique(email) {
+  const q = query(collection(db, 'users'), where('email', '==', email));
+  const snap = await getDocs(q);
+  return snap.empty;
+}
 
 // ─── Sledování stavu přihlášení ────────────────────────────────
 export function onAuth(callback) {
@@ -47,6 +60,15 @@ export async function registerWithInvite({ token, fullName, email, phone, passwo
     const { user } = await createUserWithEmailAndPassword(auth, email, password);
     const invData = emailInvSnap.data();
 
+    // Kontrola unikátnosti telefonu
+    const phoneOk = await checkPhoneUnique(phone);
+    if (!phoneOk) {
+      await deleteAuthUser(user);
+      const err = new Error('PHONE_EXISTS');
+      err.code = 'phone-already-in-use';
+      throw err;
+    }
+
     await setDoc(doc(db, 'users', user.uid), {
       fullName,
       nickname: nickname || null,
@@ -74,6 +96,15 @@ export async function registerWithInvite({ token, fullName, email, phone, passwo
 
   // 2. Vytvoř Firebase Auth účet
   const { user } = await createUserWithEmailAndPassword(auth, email, password);
+
+  // Kontrola unikátnosti telefonu
+  const phoneOk = await checkPhoneUnique(phone);
+  if (!phoneOk) {
+    await deleteAuthUser(user);
+    const err = new Error('PHONE_EXISTS');
+    err.code = 'phone-already-in-use';
+    throw err;
+  }
 
   // 3. Vytvoř profil v Firestore
   await setDoc(doc(db, 'users', user.uid), {
