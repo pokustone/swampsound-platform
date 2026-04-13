@@ -110,6 +110,8 @@ const cs = {
   evNotFound: "Nenalezena",
   evBackToEvents: "← Zpět na akce",
   evSearch: "Hledat název nebo artista...",
+  evDateFrom: "Od",
+  evDateTo: "Do",
   evNoResults: "Žádné akce",
   evNoResultsFor: (q) => `Žádné akce pro "${q}".`,
   evFlyer: "Leták",
@@ -170,6 +172,9 @@ const cs = {
   chatDeleteError: "Nelze smazat: ",
   chatStart: "Začni diskuzi!",
   chatMsgCount: (n) => `${n} zpráv`,
+  chatSearch: "Hledat v chatu...",
+  chatFilterUser: "Příspěvky od",
+  chatNoMatch: "Žádné výsledky.",
 
   // ─── Diskuze v akci ─────────────────────────────
   evDiscussion: (n) => `Diskuze (${n})`,
@@ -218,6 +223,7 @@ const cs = {
   notifAudio: "Audio",
   notifVideo: "Videa",
   notifChannel: "Kanál:",
+  notifChannels: "Kam zasílat (lze vybrat více):",
   notifEmail: "Email",
   notifSms: "SMS",
   notifTelegram: "Telegram",
